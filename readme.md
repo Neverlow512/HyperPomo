@@ -14,9 +14,9 @@ HyperPomo is a feature-rich Pomodoro timer and task planner designed to help use
 *   Session logging to track your work patterns
 *   Modern, clean interface with keyboard shortcuts for quick actions
 
-
-![Settings](Screenshots/readme_20250529235220935.png)
 ![](Screenshots/readme_20250529235106384.png)
+![Settings](Screenshots/readme_20250529235220935.png)
+
 
 ## Downloads (Recommended for Most Users)
 
