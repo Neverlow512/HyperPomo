@@ -196,17 +196,29 @@ class PomodoroApp:
 
         task_input_frame = ttk.Frame(task_section_frame) # Style "TFrame"
         task_input_frame.grid(row=0, column=0, sticky="ew", pady=5, padx=5)
-        task_input_frame.columnconfigure(0, weight=1)
+        task_input_frame.columnconfigure(0, weight=1) # Task entry expands
+        # task_input_frame.columnconfigure(1, weight=0) # Est label
+        # task_input_frame.columnconfigure(2, weight=0) # Est spinbox
+        # task_input_frame.columnconfigure(3, weight=0) # Suggest button
+        # task_input_frame.columnconfigure(4, weight=0) # Add button
+
         self.task_entry = ttk.Entry(task_input_frame, width=30) # Style "TEntry"
         self.task_entry.grid(row=0, column=0, sticky="ew", padx=(0,5))
         self.task_entry.bind("<Return>", lambda event: self.add_task_gui())
+
         self.task_pomodoro_est_label = ttk.Label(task_input_frame, text="Est:") # Style "TLabel"
-        self.task_pomodoro_est_label.grid(row=0, column=1, padx=(5,0))
+        self.task_pomodoro_est_label.grid(row=0, column=1, padx=(0,0)) # No left padding for label if button is first
+
         self.task_pomodoro_est_spinbox = ttk.Spinbox(task_input_frame, from_=1, to=20, width=3, justify=tk.CENTER) # Style "TSpinbox"
         self.task_pomodoro_est_spinbox.set("1")
-        self.task_pomodoro_est_spinbox.grid(row=0, column=2, padx=(0,5))
+        self.task_pomodoro_est_spinbox.grid(row=0, column=2, padx=(2,5))
+
+        self.gemini_suggest_est_button = ttk.Button(task_input_frame, text="✨Est.", command=self.on_gemini_suggest_estimate_button_click, width=6)
+        self.gemini_suggest_est_button.grid(row=0, column=3, padx=(0,5))
+
         self.add_task_button = ttk.Button(task_input_frame, text="Add Task", command=self.add_task_gui) # Style "TButton"
-        self.add_task_button.grid(row=0, column=3)
+        self.add_task_button.grid(row=0, column=4)
+
 
         task_display_notebook = ttk.Notebook(task_section_frame) # Default ttk.Notebook styles apply
         task_display_notebook.grid(row=1, column=0, sticky="nsew", pady=5, padx=5)
@@ -1193,6 +1205,16 @@ class PomodoroApp:
             self._add_message_to_chat_history("Gemini Assistant is disabled.", "info")
             if hasattr(self, 'gemini_send_button'): # Ensure button exists
                  self.gemini_send_button.config(state=tk.DISABLED)
+
+        # Update Suggest Estimate button state
+        gemini_is_ready = self.gemini_assistant and self.gemini_assistant.model and self.config_manager.get("gemini_enabled")
+        button_state = tk.NORMAL if gemini_is_ready else tk.DISABLED
+        if hasattr(self, 'gemini_suggest_est_button'):
+            self.gemini_suggest_est_button.config(state=button_state)
+        # Ensure send button state is also consistent: (already handled above based on API key etc)
+        # if hasattr(self, 'gemini_send_button'):
+        #     self.gemini_send_button.config(state=button_state)
+
     
     def on_send_gemini_message(self, event=None):
         if not hasattr(self, 'gemini_chat_input') or not self.gemini_chat_input.winfo_exists(): return
@@ -1204,33 +1226,173 @@ class PomodoroApp:
         self._add_message_to_chat_history(f"You: {user_text}", "user")
         self.gemini_chat_input.delete(0, tk.END)
 
+        original_chat_send_button_state = self.gemini_send_button['state']
         self.gemini_send_button.config(state=tk.DISABLED) # Disable during processing
+        if hasattr(self, 'gemini_suggest_est_button'):
+            original_suggest_button_state = self.gemini_suggest_est_button['state']
+            self.gemini_suggest_est_button.config(state=tk.DISABLED)
+        else: # Should exist, but as a fallback
+            original_suggest_button_state = tk.DISABLED
+
         self.root.update_idletasks() # Ensure UI updates
 
         if self.gemini_assistant and self.config_manager.get("gemini_enabled"):
-            response_text = self.gemini_assistant.send_message(user_text)
+            response_text = self.gemini_assistant.send_message(user_text) # No extra params for now
 
-            # TTS Playback
-            if self.tts_engine and self.config_manager.get("gemini_tts_enabled") and not response_text.startswith("Error:"):
+            parsed_successfully = False
+            if response_text.startswith("TASK_ESTIMATE_SUGGESTION:"):
                 try:
-                    self.tts_engine.say(response_text)
-                    self.tts_engine.runAndWait()
-                except Exception as e:
-                    print(f"Error during TTS playback: {e}")
-                    self._add_message_to_chat_history(f"TTS (Error): Could not play speech: {str(e)[:100]}", "error")
+                    parts_str = response_text.replace("TASK_ESTIMATE_SUGGESTION:", "").strip()
+                    task_details = {}
+                    for part in parts_str.split(';'):
+                        part = part.strip()
+                        if ':' in part:
+                            key, value = part.split(':', 1)
+                            task_details[key.strip().upper()] = value.strip()
 
-            tag_to_use = "gemini"
-            if response_text.startswith("Error:"):
-                tag_to_use = "error"
-            self._add_message_to_chat_history(f"Gemini: {response_text}", tag_to_use)
-        else:
+                    desc_from_gemini = task_details.get("DESCRIPTION", "Unknown task")
+                    suggested_pomos_str = task_details.get("SUGGESTED_POMOS")
+                    reasoning = task_details.get("REASONING", "No specific reasoning provided.")
+
+                    if suggested_pomos_str and suggested_pomos_str.lower() != 'none' and suggested_pomos_str != "\"\"":
+                        suggested_pomos_int = int(suggested_pomos_str)
+                        if suggested_pomos_int < 1: suggested_pomos_int = 1
+
+                        # This method is for chat; direct update to spinbox is handled by button click
+                        # self.task_pomodoro_est_spinbox.set(str(suggested_pomos_int))
+
+                        confirmation_msg = f"Gemini suggests {suggested_pomos_int} Pomodoro(s) for '{desc_from_gemini}'. Reasoning: {reasoning}"
+                        self._add_message_to_chat_history(f"Gemini: {confirmation_msg}", "gemini")
+                        if self.tts_engine and self.config_manager.get("gemini_tts_enabled"):
+                            self.tts_engine.say(confirmation_msg)
+                            self.tts_engine.runAndWait()
+                        parsed_successfully = True
+                    else:
+                        info_msg = f"Gemini provided an estimate suggestion for '{desc_from_gemini}' but without a specific Pomodoro count. Reasoning: {reasoning}"
+                        self._add_message_to_chat_history(f"Gemini (Info): {info_msg}", "info")
+                        if self.tts_engine and self.config_manager.get("gemini_tts_enabled"):
+                            self.tts_engine.say(info_msg)
+                            self.tts_engine.runAndWait()
+                        parsed_successfully = True # Still counts as successfully parsed the format
+
+                except ValueError:
+                    error_msg = f"Gemini provided an invalid Pomodoro estimate value. Original: {suggested_pomos_str if 'suggested_pomos_str' in locals() else 'Unknown'}"
+                    self._add_message_to_chat_history(f"Gemini (Error): {error_msg}", "error")
+                except Exception as e:
+                    error_msg = f"Error parsing Gemini's estimate suggestion: {e}. Original: {response_text}"
+                    self._add_message_to_chat_history(f"Gemini (Error): {error_msg}", "error")
+
+            elif response_text.startswith("Error:"):
+                self._add_message_to_chat_history(f"Gemini: {response_text}", "error")
+                if self.tts_engine and self.config_manager.get("gemini_tts_enabled"):
+                    self.tts_engine.say(response_text) # Speak Gemini's own error
+                    self.tts_engine.runAndWait()
+            else: # Not a structured estimate, nor a direct error from GeminiAssistant
+                # TTS Playback for general messages
+                if self.tts_engine and self.config_manager.get("gemini_tts_enabled"):
+                    try:
+                        self.tts_engine.say(response_text)
+                        self.tts_engine.runAndWait()
+                    except Exception as e:
+                        print(f"Error during TTS playback: {e}")
+                        self._add_message_to_chat_history(f"TTS (Error): Could not play speech: {str(e)[:100]}", "error")
+                self._add_message_to_chat_history(f"Gemini: {response_text}", "gemini")
+
+        else: # Gemini not enabled or assistant not initialized
             self._add_message_to_chat_history("Gemini is disabled or not configured. Check settings.", "info")
 
-        # Re-enable send button if Gemini is still configured, otherwise keep it disabled
-        if self.gemini_assistant and self.config_manager.get("gemini_enabled") and self.gemini_assistant.model:
-            self.gemini_send_button.config(state=tk.NORMAL)
+        # Re-enable buttons
+        self.gemini_send_button.config(state=original_chat_send_button_state)
+        if hasattr(self, 'gemini_suggest_est_button'):
+            self.gemini_suggest_est_button.config(state=original_suggest_button_state)
+
+
+    def on_gemini_suggest_estimate_button_click(self):
+        task_description = self.task_entry.get().strip()
+        if not task_description:
+            messagebox.showwarning("Input Error", "Please enter a task description first to get an estimate.", parent=self.root)
+            return
+
+        if not self.gemini_assistant or not self.config_manager.get("gemini_enabled"):
+            self._add_message_to_chat_history("Gemini (Info): Cannot suggest estimate. Gemini is disabled or not configured. Check settings.", "info")
+            if self.tts_engine and self.config_manager.get("gemini_tts_enabled"):
+                self.tts_engine.say("Gemini is disabled or not configured.")
+                self.tts_engine.runAndWait()
+            return
+
+        # Disable buttons during processing
+        original_chat_send_button_state = self.gemini_send_button['state']
+        original_suggest_button_state = self.gemini_suggest_est_button['state']
+        self.gemini_send_button.config(state=tk.DISABLED)
+        self.gemini_suggest_est_button.config(state=tk.DISABLED)
+        self.root.update_idletasks()
+
+        query_for_estimation = f"Help me estimate pomodoros for task: {task_description}"
+        # Add to chat history that we are asking for this specific task entry
+        self._add_message_to_chat_history(f"You (for task entry field): {query_for_estimation}", "user")
+
+        response_text = self.gemini_assistant.send_message(query_for_estimation)
+
+        parsed_successfully = False
+        if response_text.startswith("TASK_ESTIMATE_SUGGESTION:"):
+            try:
+                parts_str = response_text.replace("TASK_ESTIMATE_SUGGESTION:", "").strip()
+                task_details = {}
+                for part in parts_str.split(';'):
+                    part = part.strip()
+                    if ':' in part: # Ensure there's a colon before splitting
+                        key, value = part.split(':', 1)
+                        task_details[key.strip().upper()] = value.strip()
+
+                suggested_pomos_str = task_details.get("SUGGESTED_POMOS")
+                reasoning = task_details.get("REASONING", "No specific reasoning provided.")
+
+                if suggested_pomos_str and suggested_pomos_str.lower() != "none" and suggested_pomos_str != "\"\"":
+                    suggested_pomos_int = int(suggested_pomos_str)
+                    if suggested_pomos_int < 1: suggested_pomos_int = 1 # Ensure at least 1
+
+                    self.task_pomodoro_est_spinbox.set(str(suggested_pomos_int))
+
+                    confirmation_msg = f"Gemini suggested {suggested_pomos_int} Pomodoro(s) for '{task_description}'. Reasoning: {reasoning}"
+                    self._add_message_to_chat_history(f"Gemini: {confirmation_msg}", "gemini")
+                    if self.tts_engine and self.config_manager.get("gemini_tts_enabled"):
+                        self.tts_engine.say(confirmation_msg)
+                        self.tts_engine.runAndWait()
+                    parsed_successfully = True
+                else:
+                    info_msg = f"Gemini provided an estimate suggestion for '{task_description}' but without a specific Pomodoro count. Reasoning: {reasoning}"
+                    self._add_message_to_chat_history(f"Gemini (Info): {info_msg}", "info")
+                    if self.tts_engine and self.config_manager.get("gemini_tts_enabled"):
+                        self.tts_engine.say(info_msg)
+                        self.tts_engine.runAndWait()
+                    parsed_successfully = True # Still parsed the format correctly
+
+            except ValueError:
+                error_msg = f"Gemini provided an invalid Pomodoro estimate value. Value: '{task_details.get('SUGGESTED_POMOS', 'Unknown')}'"
+                self._add_message_to_chat_history(f"Gemini (Error): {error_msg}", "error")
+            except Exception as e:
+                error_msg = f"Error parsing Gemini's estimate suggestion: {e}. Original: {response_text}"
+                self._add_message_to_chat_history(f"Gemini (Error): {error_msg}", "error")
+
+        elif response_text.startswith("Error:"):
+            self._add_message_to_chat_history(f"Gemini: {response_text}", "error")
+            if self.tts_engine and self.config_manager.get("gemini_tts_enabled"):
+                self.tts_engine.say(response_text)
+                self.tts_engine.runAndWait()
         else:
-            self.gemini_send_button.config(state=tk.DISABLED)
+            info_msg = f"Gemini did not return a specific estimate for '{task_description}'. Response: {response_text[:100]}..."
+            self._add_message_to_chat_history(f"Gemini (Info): {info_msg}", "info")
+            if not parsed_successfully and not response_text.startswith("Error:"):
+                 self._add_message_to_chat_history(f"Gemini (Raw): {response_text}", "gemini") # Log raw if not an error and not parsed
+            if self.tts_engine and self.config_manager.get("gemini_tts_enabled"):
+                self.tts_engine.say(info_msg) # Speak the info message
+                self.tts_engine.runAndWait()
+
+        # Re-enable buttons
+        self.gemini_send_button.config(state=original_chat_send_button_state)
+        new_suggest_button_state = tk.NORMAL if self.gemini_assistant and self.gemini_assistant.model and self.config_manager.get("gemini_enabled") else tk.DISABLED
+        self.gemini_suggest_est_button.config(state=new_suggest_button_state)
+
 
     def _add_custom_sound(self, parent_window, work_combo, break_combo):
         sounds_dir = resource_path("sounds")
