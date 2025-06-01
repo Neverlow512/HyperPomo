@@ -5,9 +5,12 @@ import time
 import os
 import datetime
 import sys
+import shutil # Added for file operations
+import pyttsx3 # For Text-to-Speech
 
 from .config_manager import ConfigManager
 from .task_manager import TaskManager, Task
+from .gemini_assistant import GeminiAssistant # Import GeminiAssistant
 
 TKCALENDAR_AVAILABLE = False
 try:
@@ -40,30 +43,11 @@ class PomodoroApp:
     SHORT_BREAK = "Short Break"
     LONG_BREAK = "Long Break"
 
-    COLOR_BG = "#2D323B" 
-    COLOR_FG = "#E0E0E0" 
-    COLOR_ACCENT = "#FF8A65"  
-    COLOR_WORK = "#81C784"  
-    COLOR_SHORT_BREAK = "#64B5F6"  
-    COLOR_LONG_BREAK_BG = "#FFD54F" 
-    COLOR_LONG_BREAK_FG = "#2D323B" 
-    COLOR_BUTTON = "#4A505A"
-    COLOR_BUTTON_HOVER = "#5C6370"
-    COLOR_BUTTON_TEXT = "#FFFFFF"
-    COLOR_DISABLED_BUTTON_TEXT = "#A0A0A0"
-    COLOR_ENTRY_BG = "#373C45"
-    COLOR_TREEVIEW_BG = "#333840"
-    COLOR_TREEVIEW_FG = "#E0E0E0"
-    COLOR_TREEVIEW_FIELD_BG = "#333840"
-    COLOR_TREEVIEW_HEADING_BG = "#4A505A"
-    COLOR_CURRENT_TASK_BG = "#373C45"
-    COLOR_CALENDAR_HEADER = "#4A505A"
-    COLOR_CALENDAR_WEEKEND = "#FF7070" 
+    # Color definitions are now loaded from config_manager
 
     def __init__(self, root):
         self.root = root
         self.root.title("HyperPomo") 
-        self.root.configure(bg=self.COLOR_BG) 
         
         # self.base_dir is now effectively what resource_path("") would return if needed elsewhere
         # For consistency, if other parts of code need the app's root path and are not calling resource_path directly
@@ -71,6 +55,10 @@ class PomodoroApp:
         # self.app_root_path = resource_path("") # Gets the root bundle/script directory
 
         self.config_manager = ConfigManager(data_dir=resource_path("data"))
+        self._load_theme_colors() # Load theme colors after config_manager is ready
+
+        self.root.configure(bg=self.COLOR_BG) # Configure root bg after theme is loaded
+
         self.task_manager = TaskManager(self.config_manager)
         self.session_log = self.config_manager.load_session_log()
 
@@ -83,15 +71,43 @@ class PomodoroApp:
         self.current_task_id = None
         self.always_on_top_var = tk.BooleanVar(value=self.config_manager.get("always_on_top", False))
         self.selected_calendar_date = datetime.date.today() 
+        self.dragging_task_id = None # For task drag-and-drop
+        self.gemini_assistant = None # Initialize Gemini Assistant instance
+        self.tts_engine = None # Initialize TTS engine instance
 
         self._apply_initial_settings()
         self._setup_styles()
         self._setup_ui() 
+        self._initialize_gemini_assistant() # Initialize after UI is set up, so chat history widget exists
+        self._initialize_tts_engine() # Initialize TTS engine
         self.update_timer_display()
         self.refresh_task_list_and_daily_summary() 
         self.update_always_on_top()
         self._bind_shortcuts()
         self.update_current_datetime_display() 
+
+    def _load_theme_colors(self):
+        theme_colors = self.config_manager.get("theme")
+        # Fallbacks are to the original hardcoded values, just in case config is corrupted or a key is missing
+        self.COLOR_BG = theme_colors.get("COLOR_BG", "#2D323B")
+        self.COLOR_FG = theme_colors.get("COLOR_FG", "#E0E0E0")
+        self.COLOR_ACCENT = theme_colors.get("COLOR_ACCENT", "#FF8A65")
+        self.COLOR_WORK = theme_colors.get("COLOR_WORK", "#81C784")
+        self.COLOR_SHORT_BREAK = theme_colors.get("COLOR_SHORT_BREAK", "#64B5F6")
+        self.COLOR_LONG_BREAK_BG = theme_colors.get("COLOR_LONG_BREAK_BG", "#FFD54F")
+        self.COLOR_LONG_BREAK_FG = theme_colors.get("COLOR_LONG_BREAK_FG", "#2D323B")
+        self.COLOR_BUTTON = theme_colors.get("COLOR_BUTTON", "#4A505A")
+        self.COLOR_BUTTON_HOVER = theme_colors.get("COLOR_BUTTON_HOVER", "#5C6370")
+        self.COLOR_BUTTON_TEXT = theme_colors.get("COLOR_BUTTON_TEXT", "#FFFFFF")
+        self.COLOR_DISABLED_BUTTON_TEXT = theme_colors.get("COLOR_DISABLED_BUTTON_TEXT", "#A0A0A0")
+        self.COLOR_ENTRY_BG = theme_colors.get("COLOR_ENTRY_BG", "#373C45")
+        self.COLOR_TREEVIEW_BG = theme_colors.get("COLOR_TREEVIEW_BG", "#333840")
+        self.COLOR_TREEVIEW_FG = theme_colors.get("COLOR_TREEVIEW_FG", "#E0E0E0")
+        self.COLOR_TREEVIEW_FIELD_BG = theme_colors.get("COLOR_TREEVIEW_FIELD_BG", "#333840")
+        self.COLOR_TREEVIEW_HEADING_BG = theme_colors.get("COLOR_TREEVIEW_HEADING_BG", "#4A505A")
+        self.COLOR_CURRENT_TASK_BG = theme_colors.get("COLOR_CURRENT_TASK_BG", "#373C45")
+        self.COLOR_CALENDAR_HEADER = theme_colors.get("COLOR_CALENDAR_HEADER", "#4A505A")
+        self.COLOR_CALENDAR_WEEKEND = theme_colors.get("COLOR_CALENDAR_WEEKEND", "#FF7070")
 
     def _apply_initial_settings(self):
         self.root.attributes('-topmost', self.always_on_top_var.get())
@@ -127,7 +143,7 @@ class PomodoroApp:
                   relief=[('pressed', tk.SUNKEN), ('!pressed', tk.RAISED)])
         style.configure("CurrentTask.TLabel", background=self.COLOR_CURRENT_TASK_BG, foreground=self.COLOR_FG, padding=5, font=("Segoe UI", 9, "italic"), relief=tk.SOLID, borderwidth=1, bordercolor=self.COLOR_BUTTON)
         style.configure("Treeview", background=self.COLOR_TREEVIEW_BG, foreground=self.COLOR_TREEVIEW_FG, fieldbackground=self.COLOR_TREEVIEW_FIELD_BG, rowheight=25, font=("Segoe UI", 9))
-        style.map("Treeview", background=[('selected', self.COLOR_ACCENT)], foreground=[('selected', self.COLOR_BG)])
+        style.map("Treeview", background=[('selected', self.COLOR_ACCENT)], foreground=[('selected', self.COLOR_BG)]) # Note: COLOR_BG for selected text
         style.configure("Treeview.Heading", background=self.COLOR_TREEVIEW_HEADING_BG, foreground=self.COLOR_FG, font=('Segoe UI', 9, 'bold'), padding=4, relief=tk.FLAT)
         style.configure("TLabelframe", background=self.COLOR_BG, bordercolor=self.COLOR_ACCENT, padding=8, relief=tk.GROOVE)
         style.configure("TLabelframe.Label", background=self.COLOR_BG, foreground=self.COLOR_ACCENT, font=("Segoe UI", 10, "bold"))
@@ -140,29 +156,29 @@ class PomodoroApp:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
-        main_paned_window = PanedWindow(self.root, orient=tk.HORIZONTAL, sashrelief=tk.RAISED, sashwidth=5, bg=self.COLOR_ACCENT)
+        main_paned_window = PanedWindow(self.root, orient=tk.HORIZONTAL, sashrelief=tk.RAISED, sashwidth=5, bg=self.COLOR_ACCENT) # Sash color
         main_paned_window.pack(fill=tk.BOTH, expand=True)
 
-        left_pane_frame = ttk.Frame(main_paned_window, padding=5) 
+        left_pane_frame = ttk.Frame(main_paned_window, padding=5) # Style "TFrame" will apply COLOR_BG
         left_pane_frame.columnconfigure(0, weight=1)
         left_pane_frame.rowconfigure(1, weight=1) 
         main_paned_window.add(left_pane_frame, minsize=450)
 
-        self.timer_controls_frame = ttk.Frame(left_pane_frame) 
+        self.timer_controls_frame = ttk.Frame(left_pane_frame) # Style will apply based on session
         self.timer_controls_frame.grid(row=0, column=0, sticky="ew", pady=(0,10))
         self.timer_controls_frame.columnconfigure(0, weight=1)
 
-        self.session_label = ttk.Label(self.timer_controls_frame, text=self.current_session_type, anchor="center")
+        self.session_label = ttk.Label(self.timer_controls_frame, text=self.current_session_type, anchor="center") # Style will apply based on session
         self.session_label.pack(pady=(0,2), fill=tk.X)
-        self.timer_label = ttk.Label(self.timer_controls_frame, text="25:00", anchor="center")
+        self.timer_label = ttk.Label(self.timer_controls_frame, text="25:00", anchor="center") # Style will apply based on session
         self.timer_label.pack(pady=2, fill=tk.X)
-        self.pomodoro_count_label = ttk.Label(self.timer_controls_frame, text=f"Cycle: 0 / {self.config_manager.get('pomodoros_per_long_break')}", anchor="center")
+        self.pomodoro_count_label = ttk.Label(self.timer_controls_frame, text=f"Cycle: 0 / {self.config_manager.get('pomodoros_per_long_break')}", anchor="center") # Style will apply based on session
         self.pomodoro_count_label.pack(pady=(0,5), fill=tk.X)
         
-        self.current_task_display_label = ttk.Label(self.timer_controls_frame, text="Current Task: None", style="CurrentTask.TLabel", anchor="center", wraplength=400)
+        self.current_task_display_label = ttk.Label(self.timer_controls_frame, text="Current Task: None", style="CurrentTask.TLabel", anchor="center", wraplength=400) # Uses specific style
         self.current_task_display_label.pack(pady=(5,5), fill=tk.X, padx=10)
 
-        self.controls_grid_frame = ttk.Frame(self.timer_controls_frame) 
+        self.controls_grid_frame = ttk.Frame(self.timer_controls_frame) # Style will apply based on session
         self.controls_grid_frame.pack(pady=5)
         self.start_button = ttk.Button(self.controls_grid_frame, text="Start", command=self.start_timer, width=12)
         self.start_button.grid(row=0, column=0, padx=3)
@@ -173,34 +189,34 @@ class PomodoroApp:
         self.skip_button = ttk.Button(self.controls_grid_frame, text="Skip Break", command=self.skip_break, width=12, state=tk.DISABLED)
         self.skip_button.grid(row=0, column=3, padx=3)
 
-        task_section_frame = ttk.LabelFrame(left_pane_frame, text="Task Management")
+        task_section_frame = ttk.LabelFrame(left_pane_frame, text="Task Management") # Style "TLabelframe"
         task_section_frame.grid(row=1, column=0, sticky="nsew", pady=5)
         task_section_frame.columnconfigure(0, weight=1) 
         task_section_frame.rowconfigure(1, weight=1) 
 
-        task_input_frame = ttk.Frame(task_section_frame)
+        task_input_frame = ttk.Frame(task_section_frame) # Style "TFrame"
         task_input_frame.grid(row=0, column=0, sticky="ew", pady=5, padx=5)
         task_input_frame.columnconfigure(0, weight=1)
-        self.task_entry = ttk.Entry(task_input_frame, width=30)
+        self.task_entry = ttk.Entry(task_input_frame, width=30) # Style "TEntry"
         self.task_entry.grid(row=0, column=0, sticky="ew", padx=(0,5))
         self.task_entry.bind("<Return>", lambda event: self.add_task_gui())
-        self.task_pomodoro_est_label = ttk.Label(task_input_frame, text="Est:")
+        self.task_pomodoro_est_label = ttk.Label(task_input_frame, text="Est:") # Style "TLabel"
         self.task_pomodoro_est_label.grid(row=0, column=1, padx=(5,0))
-        self.task_pomodoro_est_spinbox = ttk.Spinbox(task_input_frame, from_=1, to=20, width=3, justify=tk.CENTER)
+        self.task_pomodoro_est_spinbox = ttk.Spinbox(task_input_frame, from_=1, to=20, width=3, justify=tk.CENTER) # Style "TSpinbox"
         self.task_pomodoro_est_spinbox.set("1")
         self.task_pomodoro_est_spinbox.grid(row=0, column=2, padx=(0,5))
-        self.add_task_button = ttk.Button(task_input_frame, text="Add Task", command=self.add_task_gui)
+        self.add_task_button = ttk.Button(task_input_frame, text="Add Task", command=self.add_task_gui) # Style "TButton"
         self.add_task_button.grid(row=0, column=3)
 
-        task_display_notebook = ttk.Notebook(task_section_frame)
+        task_display_notebook = ttk.Notebook(task_section_frame) # Default ttk.Notebook styles apply
         task_display_notebook.grid(row=1, column=0, sticky="nsew", pady=5, padx=5)
 
-        tasks_tab_frame = ttk.Frame(task_display_notebook)
+        tasks_tab_frame = ttk.Frame(task_display_notebook) # Style "TFrame"
         tasks_tab_frame.columnconfigure(0, weight=1)
         tasks_tab_frame.rowconfigure(0, weight=1)
         task_display_notebook.add(tasks_tab_frame, text="Scheduled Tasks")
 
-        self.task_tree = ttk.Treeview(tasks_tab_frame, columns=("text", "est", "done_p"), show="headings", selectmode="browse")
+        self.task_tree = ttk.Treeview(tasks_tab_frame, columns=("text", "est", "done_p"), show="headings", selectmode="browse") # Style "Treeview"
         self.task_tree.heading("text", text="Task (for selected date)")
         self.task_tree.heading("est", text="Est.")
         self.task_tree.heading("done_p", text="Done")
@@ -209,90 +225,129 @@ class PomodoroApp:
         self.task_tree.column("done_p", width=50, anchor="center")
         self.task_tree.grid(row=0, column=0, sticky="nsew")
         self.task_tree.bind("<<TreeviewSelect>>", self.on_task_select)
+        self.task_tree.bind("<ButtonPress-1>", self.on_task_drag_start)
+        self.task_tree.bind("<B1-Motion>", self.on_task_drag_motion)
+        self.task_tree.bind("<ButtonRelease-1>", self.on_task_drag_release)
         
-        task_tree_scrollbar = ttk.Scrollbar(tasks_tab_frame, orient="vertical", command=self.task_tree.yview)
+        task_tree_scrollbar = ttk.Scrollbar(tasks_tab_frame, orient="vertical", command=self.task_tree.yview) # Default ttk.Scrollbar styles
         self.task_tree.configure(yscrollcommand=task_tree_scrollbar.set)
         task_tree_scrollbar.grid(row=0, column=1, sticky="ns")
 
-        notes_tab_frame = ttk.Frame(task_display_notebook)
+        notes_tab_frame = ttk.Frame(task_display_notebook) # Style "TFrame"
         notes_tab_frame.columnconfigure(0, weight=1)
         notes_tab_frame.rowconfigure(0, weight=1)
         task_display_notebook.add(notes_tab_frame, text="Notes")
         self.task_notes_text = scrolledtext.ScrolledText(notes_tab_frame, wrap=tk.WORD, height=5, width=30,
-                                                         bg=self.COLOR_ENTRY_BG, fg=self.COLOR_FG, insertbackground=self.COLOR_FG,
+                                                         bg=self.COLOR_ENTRY_BG, fg=self.COLOR_FG, insertbackground=self.COLOR_FG, # Direct color assignment for ScrolledText
                                                          font=("Segoe UI", 9), relief=tk.FLAT, borderwidth=2)
         self.task_notes_text.pack(expand=True, fill=tk.BOTH, padx=2, pady=2)
         self.task_notes_text.bind("<FocusOut>", self.save_task_notes_auto)
         self.task_notes_text.config(state=tk.DISABLED)
 
-        task_button_frame = ttk.Frame(task_section_frame)
+        task_button_frame = ttk.Frame(task_section_frame) # Style "TFrame"
         task_button_frame.grid(row=2, column=0, sticky="ew", pady=5, padx=5)
-        self.select_work_task_button = ttk.Button(task_button_frame, text="Work on", command=self.set_current_work_task, state=tk.DISABLED, width=10)
+        self.select_work_task_button = ttk.Button(task_button_frame, text="Work on", command=self.set_current_work_task, state=tk.DISABLED, width=10) # Style "TButton"
         self.select_work_task_button.pack(side=tk.LEFT, padx=2)
-        self.mark_done_button = ttk.Button(task_button_frame, text="Done", command=self.toggle_task_done_gui, state=tk.DISABLED, width=8)
+        self.mark_done_button = ttk.Button(task_button_frame, text="Done", command=self.toggle_task_done_gui, state=tk.DISABLED, width=8) # Style "TButton"
         self.mark_done_button.pack(side=tk.LEFT, padx=2)
-        self.edit_task_button = ttk.Button(task_button_frame, text="Edit", command=self.edit_task_gui, state=tk.DISABLED, width=8)
+        self.edit_task_button = ttk.Button(task_button_frame, text="Edit", command=self.edit_task_gui, state=tk.DISABLED, width=8) # Style "TButton"
         self.edit_task_button.pack(side=tk.LEFT, padx=2)
-        self.delete_task_button = ttk.Button(task_button_frame, text="Delete", command=self.delete_task_gui, state=tk.DISABLED, width=8)
+        self.delete_task_button = ttk.Button(task_button_frame, text="Delete", command=self.delete_task_gui, state=tk.DISABLED, width=8) # Style "TButton"
         self.delete_task_button.pack(side=tk.LEFT, padx=2)
-        self.schedule_task_button = ttk.Button(task_button_frame, text="Schedule", command=self.open_schedule_dialog_for_selected_task, state=tk.DISABLED, width=10)
+        self.schedule_task_button = ttk.Button(task_button_frame, text="Schedule", command=self.open_schedule_dialog_for_selected_task, state=tk.DISABLED, width=10) # Style "TButton"
         self.schedule_task_button.pack(side=tk.LEFT, padx=2)
 
-        right_pane_frame = ttk.Frame(main_paned_window, padding=5) 
+        right_pane_frame = ttk.Frame(main_paned_window, padding=5) # Style "TFrame"
         right_pane_frame.columnconfigure(0, weight=1)
         right_pane_frame.rowconfigure(1, weight=1) 
         main_paned_window.add(right_pane_frame, minsize=350)
 
-        self.datetime_label = ttk.Label(right_pane_frame, text="", style="DateTime.TLabel", anchor="e")
+        self.datetime_label = ttk.Label(right_pane_frame, text="", style="DateTime.TLabel", anchor="e") # Specific style
         self.datetime_label.grid(row=0, column=0, sticky="ew", pady=(0,5), padx=5)
 
-        calendar_outer_frame = ttk.LabelFrame(right_pane_frame, text="Calendar")
+        calendar_outer_frame = ttk.LabelFrame(right_pane_frame, text="Calendar") # Style "TLabelframe"
         calendar_outer_frame.grid(row=1, column=0, sticky="new", pady=5, padx=5)
         calendar_outer_frame.columnconfigure(0, weight=1)
 
         if TKCALENDAR_AVAILABLE:
+            # tkcalendar.Calendar does not use ttk styles, so colors are set directly
             self.cal = Calendar(calendar_outer_frame, selectmode='day', date_pattern='yyyy-mm-dd',
                                 year=self.selected_calendar_date.year, month=self.selected_calendar_date.month, day=self.selected_calendar_date.day,
-                                background=self.COLOR_CALENDAR_HEADER, foreground='white',
+                                background=self.COLOR_CALENDAR_HEADER, foreground='white', # Using theme colors
                                 headersbackground=self.COLOR_CALENDAR_HEADER, headersforeground='white',
                                 bordercolor=self.COLOR_ACCENT, weekendbackground=self.COLOR_BG, weekendforeground=self.COLOR_CALENDAR_WEEKEND,
                                 othermonthbackground=self.COLOR_ENTRY_BG, othermonthwebackground=self.COLOR_ENTRY_BG, 
                                 othermonthforeground='gray60', othermonthweforeground='gray50',
-                                normalbackground=self.COLOR_TREEVIEW_BG, normalforeground='white',
-                                selectedbackground=self.COLOR_ACCENT, selectedforeground='black',
+                                normalbackground=self.COLOR_TREEVIEW_BG, normalforeground='white', # Normal day bg/fg
+                                selectedbackground=self.COLOR_ACCENT, selectedforeground=self.COLOR_BG, # Selected day bg/fg (using COLOR_BG for text on accent)
                                 font=("Segoe UI", 9), firstweekday='monday')
             self.cal.pack(fill="x", expand=True, padx=5, pady=5)
             self.cal.bind("<<CalendarSelected>>", self.on_calendar_date_selected)
         else:
-            ttk.Label(calendar_outer_frame, text="Calendar feature disabled (tkcalendar not found).", foreground="orange").pack(padx=5, pady=10)
+            ttk.Label(calendar_outer_frame, text="Calendar feature disabled (tkcalendar not found).", foreground="orange").pack(padx=5, pady=10) # Style "TLabel"
 
-        self.daily_summary_labelframe = ttk.LabelFrame(right_pane_frame, text=f"Summary for {self.selected_calendar_date.strftime('%Y-%m-%d')}") 
+        self.daily_summary_labelframe = ttk.LabelFrame(right_pane_frame, text=f"Summary for {self.selected_calendar_date.strftime('%Y-%m-%d')}") # Style "TLabelframe"
         self.daily_summary_labelframe.grid(row=2, column=0, sticky="nsew", pady=5, padx=5)
         self.daily_summary_labelframe.columnconfigure(0, weight=1)
         self.daily_summary_labelframe.rowconfigure(0, weight=1)
         right_pane_frame.rowconfigure(2, weight=1)
 
         self.daily_summary_text = scrolledtext.ScrolledText(self.daily_summary_labelframe, wrap=tk.WORD, height=8,
-                                                            bg=self.COLOR_ENTRY_BG, fg=self.COLOR_FG,
+                                                            bg=self.COLOR_ENTRY_BG, fg=self.COLOR_FG, # Direct color assignment
                                                             font=("Segoe UI", 9), relief=tk.FLAT, borderwidth=1)
         self.daily_summary_text.pack(expand=True, fill=tk.BOTH, padx=2, pady=2)
         self.daily_summary_text.config(state=tk.DISABLED)
 
-        bottom_controls_frame = ttk.Frame(right_pane_frame)
+        bottom_controls_frame = ttk.Frame(right_pane_frame) # Style "TFrame"
         bottom_controls_frame.grid(row=3, column=0, sticky="ew", pady=(10,0), padx=5)
         bottom_controls_frame.columnconfigure(1, weight=1)
 
-        self.reset_cycle_button = ttk.Button(bottom_controls_frame, text="Reset Cycle Count", command=self.reset_pomodoro_cycle_count, width=18)
+        self.reset_cycle_button = ttk.Button(bottom_controls_frame, text="Reset Cycle Count", command=self.reset_pomodoro_cycle_count, width=18) # Style "TButton"
         self.reset_cycle_button.grid(row=0, column=0, sticky="w", padx=(0,10))
         
-        settings_button = ttk.Button(bottom_controls_frame, text="⚙️ Settings", command=self.open_settings, width=12)
+        settings_button = ttk.Button(bottom_controls_frame, text="⚙️ Settings", command=self.open_settings, width=12) # Style "TButton"
         settings_button.grid(row=0, column=2, sticky="e")
+
+        # --- Gemini Chat Frame ---
+        gemini_chat_frame = ttk.LabelFrame(right_pane_frame, text="Gemini Assistant")
+        gemini_chat_frame.grid(row=4, column=0, sticky="nsew", pady=(10,5), padx=5) # Ensure row index is correct
+        right_pane_frame.rowconfigure(4, weight=1) # Allow chat frame to expand
+        gemini_chat_frame.columnconfigure(0, weight=1)
+        gemini_chat_frame.rowconfigure(0, weight=1) # Allow ScrolledText to expand
+
+        self.gemini_chat_history = scrolledtext.ScrolledText(
+            gemini_chat_frame, wrap=tk.WORD, height=10, state=tk.DISABLED,
+            bg=self.COLOR_ENTRY_BG, fg=self.COLOR_FG,
+            font=("Segoe UI", 9), relief=tk.FLAT, borderwidth=1
+        )
+        self.gemini_chat_history.pack(pady=5, padx=5, expand=True, fill=tk.BOTH)
+        # Alternative grid layout for ScrolledText if preferred:
+        # self.gemini_chat_history.grid(row=0, column=0, sticky="nsew", pady=5, padx=5)
+
+
+        # Define tags for chat styling
+        self.gemini_chat_history.tag_configure("user", foreground=self.COLOR_ACCENT)
+        self.gemini_chat_history.tag_configure("gemini", foreground=self.COLOR_SHORT_BREAK)
+        self.gemini_chat_history.tag_configure("error", foreground=self.COLOR_CALENDAR_WEEKEND)
+        self.gemini_chat_history.tag_configure("info", foreground="gray")
+
+        chat_input_frame = ttk.Frame(gemini_chat_frame)
+        chat_input_frame.pack(pady=(0,5), padx=5, fill=tk.X)
+        # chat_input_frame.grid(row=1, column=0, sticky="ew", pady=(0,5), padx=5) # if using grid for ScrolledText
+        chat_input_frame.columnconfigure(0, weight=1)
+
+        self.gemini_chat_input = ttk.Entry(chat_input_frame, font=("Segoe UI", 10))
+        self.gemini_chat_input.grid(row=0, column=0, sticky="ew", padx=(0,5))
+        self.gemini_chat_input.bind("<Return>", self.on_send_gemini_message)
+
+        self.gemini_send_button = ttk.Button(chat_input_frame, text="Send", command=self.on_send_gemini_message)
+        self.gemini_send_button.grid(row=0, column=1)
         
         self.update_ui_for_session() 
 
     def update_current_datetime_display(self):
         now = datetime.datetime.now()
-        self.datetime_label.config(text=now.strftime("%A, %B %d, %Y  %I:%M:%S %p"))
+        self.datetime_label.config(text=now.strftime("%A, %B %d, %Y  %I:%M:%S %p")) # Uses DateTime.TLabel style
         self.root.after(1000, self.update_current_datetime_display) 
 
 
@@ -308,7 +363,7 @@ class PomodoroApp:
                 print(f"Error parsing date from calendar: {new_date_str}")
                 return
 
-        self.daily_summary_labelframe.config(text=f"Summary for {self.selected_calendar_date.strftime('%Y-%m-%d')}")
+        self.daily_summary_labelframe.config(text=f"Summary for {self.selected_calendar_date.strftime('%Y-%m-%d')}") # Label of TLabelframe
         self.refresh_task_list_and_daily_summary()
 
 
@@ -434,11 +489,11 @@ class PomodoroApp:
 
         dialog = tk.Toplevel(self.root)
         dialog.title(f"Schedule Task: {task.text[:30]}")
-        dialog.configure(bg=self.COLOR_BG)
+        dialog.configure(bg=self.COLOR_BG) # Direct bg config for Toplevel
         dialog.transient(self.root)
         dialog.grab_set()
         
-        ttk.Label(dialog, text="Select Scheduled Date:").pack(padx=10, pady=(10,5))
+        ttk.Label(dialog, text="Select Scheduled Date:", background=self.COLOR_BG, foreground=self.COLOR_FG).pack(padx=10, pady=(10,5)) # Explicit Label for Toplevel
         
         initial_date_obj = None
         today = datetime.date.today()
@@ -450,8 +505,11 @@ class PomodoroApp:
         date_entry_month = initial_date_obj.month if initial_date_obj else today.month
         date_entry_day = initial_date_obj.day if initial_date_obj else today.day
 
-        date_entry = DateEntry(dialog, width=12, background=self.COLOR_ACCENT, foreground='black', borderwidth=2,
-                               date_pattern='yyyy-mm-dd', year=date_entry_year, month=date_entry_month, day=date_entry_day,
+        # DateEntry is from tkcalendar, not ttk, so colors are direct
+        date_entry = DateEntry(dialog, width=12, background=self.COLOR_ACCENT, foreground=self.COLOR_LONG_BREAK_FG, # Using LongBreak FG for contrast on Accent
+                               disabledbackground=self.COLOR_BUTTON, disabledforeground=self.COLOR_DISABLED_BUTTON_TEXT,
+                               borderwidth=2, date_pattern='yyyy-mm-dd',
+                               year=date_entry_year, month=date_entry_month, day=date_entry_day,
                                allow_none=True) 
         if initial_date_obj:
             date_entry.set_date(initial_date_obj)
@@ -466,10 +524,10 @@ class PomodoroApp:
             self.refresh_task_list_and_daily_summary()
             dialog.destroy()
             
-        btn_frame = ttk.Frame(dialog)
+        btn_frame = ttk.Frame(dialog, style="TFrame") # Use TFrame style for BG
         btn_frame.pack(pady=10)
-        ttk.Button(btn_frame, text="Save Schedule", command=_save_schedule).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Save Schedule", command=_save_schedule).pack(side=tk.LEFT, padx=5) # TButton style
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5) # TButton style
 
 
     def add_task_gui(self):
@@ -553,19 +611,19 @@ class PomodoroApp:
 
         edit_dialog = tk.Toplevel(self.root) 
         edit_dialog.title("Edit Task")
-        edit_dialog.configure(bg=self.COLOR_BG); edit_dialog.transient(self.root); edit_dialog.grab_set()
+        edit_dialog.configure(bg=self.COLOR_BG); edit_dialog.transient(self.root); edit_dialog.grab_set() # Direct BG for Toplevel
         
-        ttk.Label(edit_dialog, text="Task Text:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(edit_dialog, text="Task Text:", background=self.COLOR_BG, foreground=self.COLOR_FG).grid(row=0, column=0, padx=10, pady=5, sticky="w") # Explicit Label for Toplevel
         edit_text_var = tk.StringVar(value=task.text)
-        ttk.Entry(edit_dialog, textvariable=edit_text_var, width=40).grid(row=0, column=1, padx=10, pady=5, sticky="ew")
+        ttk.Entry(edit_dialog, textvariable=edit_text_var, width=40).grid(row=0, column=1, padx=10, pady=5, sticky="ew") # TEntry style
 
-        ttk.Label(edit_dialog, text="Est. Pomodoros:").grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(edit_dialog, text="Est. Pomodoros:", background=self.COLOR_BG, foreground=self.COLOR_FG).grid(row=1, column=0, padx=10, pady=5, sticky="w") # Explicit Label for Toplevel
         edit_est_var = tk.StringVar(value=str(task.estimated_pomodoros))
-        ttk.Spinbox(edit_dialog, from_=1, to=20, textvariable=edit_est_var, width=5).grid(row=1, column=1, padx=10, pady=5, sticky="w")
+        ttk.Spinbox(edit_dialog, from_=1, to=20, textvariable=edit_est_var, width=5).grid(row=1, column=1, padx=10, pady=5, sticky="w") # TSpinbox style
 
         sched_date_entry = None 
         if TKCALENDAR_AVAILABLE:
-            ttk.Label(edit_dialog, text="Scheduled Date:").grid(row=2, column=0, padx=10, pady=5, sticky="w")
+            ttk.Label(edit_dialog, text="Scheduled Date:", background=self.COLOR_BG, foreground=self.COLOR_FG).grid(row=2, column=0, padx=10, pady=5, sticky="w") # Explicit Label for Toplevel
             initial_sched_date_obj = None
             today = datetime.date.today()
             if task.scheduled_date:
@@ -576,8 +634,11 @@ class PomodoroApp:
             date_entry_month = initial_sched_date_obj.month if initial_sched_date_obj else today.month
             date_entry_day = initial_sched_date_obj.day if initial_sched_date_obj else today.day
 
+            # DateEntry is from tkcalendar, not ttk, so colors are direct
             sched_date_entry = DateEntry(edit_dialog, date_pattern='yyyy-mm-dd', 
                                          year=date_entry_year, month=date_entry_month, day=date_entry_day,
+                                         background=self.COLOR_ACCENT, foreground=self.COLOR_LONG_BREAK_FG, # Using LongBreak FG for contrast on Accent
+                                         disabledbackground=self.COLOR_BUTTON, disabledforeground=self.COLOR_DISABLED_BUTTON_TEXT,
                                          allow_none=True)
             if initial_sched_date_obj:
                 sched_date_entry.set_date(initial_sched_date_obj)
@@ -598,13 +659,13 @@ class PomodoroApp:
             if new_text:
                 self.task_manager.update_task(task_id, text=new_text, estimated_pomodoros=new_est, scheduled_date=new_sched_date_to_save)
                 self.refresh_task_list_and_daily_summary()
-                if self.current_task_id == task_id: self.current_task_display_label.config(text=f"Working on: {new_text[:40]}...")
+                if self.current_task_id == task_id: self.current_task_display_label.config(text=f"Working on: {new_text[:40]}...") # Uses CurrentTask.TLabel style
                 edit_dialog.destroy()
             else: messagebox.showerror("Input Error", "Task text cannot be empty.", parent=edit_dialog)
 
-        button_frame = ttk.Frame(edit_dialog); button_frame.grid(row=3 if TKCALENDAR_AVAILABLE else 2, column=0, columnspan=2, pady=10)
-        ttk.Button(button_frame, text="Save", command=save_edit).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Cancel", command=edit_dialog.destroy).pack(side=tk.LEFT, padx=5)
+        button_frame = ttk.Frame(edit_dialog, style="TFrame"); button_frame.grid(row=3 if TKCALENDAR_AVAILABLE else 2, column=0, columnspan=2, pady=10) # TFrame for BG
+        ttk.Button(button_frame, text="Save", command=save_edit).pack(side=tk.LEFT, padx=5) # TButton style
+        ttk.Button(button_frame, text="Cancel", command=edit_dialog.destroy).pack(side=tk.LEFT, padx=5) # TButton style
         edit_dialog.columnconfigure(1, weight=1)
 
     def delete_task_gui(self):
@@ -880,13 +941,16 @@ class PomodoroApp:
 
         settings_window = tk.Toplevel(self.root)
         settings_window.title("Settings")
-        settings_window.configure(bg=self.COLOR_BG)
+        settings_window.configure(bg=self.COLOR_BG) # Direct BG for Toplevel
         settings_window.transient(self.root)
         settings_window.grab_set()
         settings_window.resizable(False, False)
 
-        main_settings_frame = ttk.Frame(settings_window, padding="20")
+        main_settings_frame = ttk.Frame(settings_window, padding="20") # TFrame style for BG
         main_settings_frame.pack(expand=True, fill=tk.BOTH)
+
+        # Labels in settings window will use default TLabel style (config_bg, config_fg)
+        # Entries and Spinboxes will use TEntry and TSpinbox styles
 
         ttk.Label(main_settings_frame, text="Work Duration (min):").grid(row=0, column=0, sticky=tk.W, pady=3)
         work_var = tk.IntVar(value=self.config_manager.get("work_duration"))
@@ -916,22 +980,117 @@ class PomodoroApp:
         
         ttk.Checkbutton(main_settings_frame, text="Always on Top", variable=self.always_on_top_var, command=self.update_always_on_top).grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=3)
 
+        # Sound selection
+        sounds_library = self.config_manager.get("notification_sounds", [])
+        self.sound_name_to_path_map = {s["name"]: s["path"] for s in sounds_library}
+        sound_names = list(self.sound_name_to_path_map.keys())
+        if not sound_names: sound_names = ["No sounds available"]
+
+
+        # Work End Sound Combobox
         ttk.Label(main_settings_frame, text="Work End Sound:").grid(row=8, column=0, sticky=tk.W, pady=3)
-        work_sound_var = tk.StringVar(value=self.config_manager.get("work_end_sound"))
-        work_sound_entry = ttk.Entry(main_settings_frame, textvariable=work_sound_var, width=30)
-        work_sound_entry.grid(row=8, column=1, sticky=tk.EW, pady=3)
-        ttk.Button(main_settings_frame, text="...", width=3, command=lambda: self._browse_sound_file(work_sound_var, settings_window)).grid(row=8, column=2, padx=5, pady=3)
+        current_work_sound_path = self.config_manager.get("work_end_sound")
+        current_work_sound_name = next((name for name, path in self.sound_name_to_path_map.items() if path == current_work_sound_path), "")
         
+        self.work_sound_combo_var = tk.StringVar(value=current_work_sound_name)
+        work_sound_combobox = ttk.Combobox(main_settings_frame, textvariable=self.work_sound_combo_var, values=sound_names, state="readonly", width=28)
+        work_sound_combobox.grid(row=8, column=1, sticky=tk.EW, pady=3)
+        # Removed browse button for individual sound, replaced by Add Custom Sound
+
+        # Break End Sound Combobox
         ttk.Label(main_settings_frame, text="Break End Sound:").grid(row=9, column=0, sticky=tk.W, pady=3)
-        break_sound_var = tk.StringVar(value=self.config_manager.get("break_end_sound"))
-        break_sound_entry = ttk.Entry(main_settings_frame, textvariable=break_sound_var, width=30)
-        break_sound_entry.grid(row=9, column=1, sticky=tk.EW, pady=3)
-        ttk.Button(main_settings_frame, text="...", width=3, command=lambda: self._browse_sound_file(break_sound_var, settings_window)).grid(row=9, column=2, padx=5, pady=3)
+        current_break_sound_path = self.config_manager.get("break_end_sound")
+        current_break_sound_name = next((name for name, path in self.sound_name_to_path_map.items() if path == current_break_sound_path), "")
+
+        self.break_sound_combo_var = tk.StringVar(value=current_break_sound_name)
+        break_sound_combobox = ttk.Combobox(main_settings_frame, textvariable=self.break_sound_combo_var, values=sound_names, state="readonly", width=28)
+        break_sound_combobox.grid(row=9, column=1, sticky=tk.EW, pady=3)
+        # Removed browse button for individual sound
+
+        # Add Custom Sound Button
+        add_sound_button = ttk.Button(main_settings_frame, text="Add Custom Sound", command=lambda: self._add_custom_sound(settings_window, work_sound_combobox, break_sound_combobox))
+        add_sound_button.grid(row=8, column=2, rowspan=2, padx=5, pady=3, sticky="ns")
+
+
+        # --- Theme Colors Display ---
+        theme_labelframe = ttk.LabelFrame(main_settings_frame, text="Theme Colors (Read-only)")
+        theme_labelframe.grid(row=10, column=0, columnspan=3, sticky="ew", pady=(15,5), padx=5)
+
+        theme_canvas = tk.Canvas(theme_labelframe, borderwidth=0, background=self.COLOR_BG, height=150) # Set height
+        theme_scrollbar = ttk.Scrollbar(theme_labelframe, orient="vertical", command=theme_canvas.yview)
+        theme_scrollable_frame = ttk.Frame(theme_canvas)
+
+        theme_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: theme_canvas.configure(
+                scrollregion=theme_canvas.bbox("all")
+            )
+        )
+        theme_canvas.create_window((0, 0), window=theme_scrollable_frame, anchor="nw")
+        theme_canvas.configure(yscrollcommand=theme_scrollbar.set)
+
+        theme_canvas.pack(side="left", fill="both", expand=True)
+        theme_scrollbar.pack(side="right", fill="y")
+
+        current_theme_colors = self.config_manager.get("theme")
+        color_row = 0
+        for name, value in current_theme_colors.items():
+            ttk.Label(theme_scrollable_frame, text=f"{name}:", anchor="w").grid(row=color_row, column=0, sticky="ew", padx=5, pady=2)
+
+            hex_value_label = ttk.Label(theme_scrollable_frame, text=value, anchor="w")
+            hex_value_label.grid(row=color_row, column=1, sticky="ew", padx=5, pady=2)
+
+            # Color preview swatch
+            # Ensure the preview label itself has a contrasting foreground to its own background for readability of the hex code
+            # Fallback to a default fg color if the theme's main FG is too similar to the swatch color
+            preview_fg = self.COLOR_FG
+            try:
+                # Basic check for contrast, can be more sophisticated
+                bg_lum = sum(int(value[i:i+2], 16) for i in (1, 3, 5)) / (255 * 3)
+                fg_lum = sum(int(self.COLOR_FG[i:i+2], 16) for i in (1, 3, 5)) / (255 * 3)
+                if abs(bg_lum - fg_lum) < 0.3: # Arbitrary threshold
+                    preview_fg = "#000000" if fg_lum > 0.5 else "#FFFFFF"
+            except Exception: # In case of invalid hex or other errors
+                pass
+
+
+            color_preview = tk.Label(theme_scrollable_frame, text="     ", background=value, width=5, relief="sunken", borderwidth=1)
+            color_preview.grid(row=color_row, column=2, padx=5, pady=2, sticky="w")
+
+            # Re-apply hex value label on top of preview swatch for better visibility if needed, or just use a separate label
+            # For simplicity, we use the separate hex_value_label already created.
+
+            color_row += 1
+        theme_scrollable_frame.columnconfigure(0, weight=1) # Let color name expand
+        theme_scrollable_frame.columnconfigure(1, weight=1) # Let hex value expand
+
+        # --- Gemini Assistant Settings ---
+        gemini_frame = ttk.LabelFrame(main_settings_frame, text="Gemini Assistant Settings")
+        gemini_frame.grid(row=11, column=0, columnspan=3, sticky="ew", pady=(15,5), padx=5)
+        gemini_frame.columnconfigure(1, weight=1)
+
+        gemini_enabled_var = tk.BooleanVar(value=self.config_manager.get("gemini_enabled", False))
+        ttk.Checkbutton(gemini_frame, text="Enable Gemini Assistant", variable=gemini_enabled_var).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=3)
+
+        ttk.Label(gemini_frame, text="Gemini API Key:").grid(row=1, column=0, sticky=tk.W, pady=3)
+        gemini_api_key_var = tk.StringVar(value=self.config_manager.get("gemini_api_key", ""))
+        ttk.Entry(gemini_frame, textvariable=gemini_api_key_var, width=30, show="*").grid(row=1, column=1, sticky=tk.EW, pady=3)
+
+        ttk.Label(gemini_frame, text="Gemini Model:").grid(row=2, column=0, sticky=tk.W, pady=3)
+        gemini_model_var = tk.StringVar(value=self.config_manager.get("gemini_model", "gemini-pro"))
+        gemini_models_available = self.config_manager.get("gemini_models_available", ["gemini-pro"])
+        if not gemini_models_available: gemini_models_available = ["gemini-pro"] # Ensure list is not empty
+        gemini_model_combobox = ttk.Combobox(gemini_frame, textvariable=gemini_model_var, values=gemini_models_available, state="readonly", width=28)
+        gemini_model_combobox.grid(row=2, column=1, sticky=tk.EW, pady=3)
+
+        gemini_tts_enabled_var = tk.BooleanVar(value=self.config_manager.get("gemini_tts_enabled", False))
+        ttk.Checkbutton(gemini_frame, text="Enable Text-to-Speech for Gemini responses", variable=gemini_tts_enabled_var).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=3)
+
 
         main_settings_frame.columnconfigure(1, weight=1)
 
-        button_frame = ttk.Frame(main_settings_frame)
-        button_frame.grid(row=10, column=0, columnspan=3, pady=15)
+        button_frame = ttk.Frame(main_settings_frame) # TFrame style for BG
+        button_frame.grid(row=12, column=0, columnspan=3, pady=15) # Adjusted row for Gemini section
 
         def save_and_close():
             self.config_manager.set("work_duration", work_var.get())
@@ -941,47 +1100,222 @@ class PomodoroApp:
             self.config_manager.set("user_name", user_name_var.get())
             self.config_manager.set("auto_start_next_session", auto_start_var.get())
             self.config_manager.set("sound_enabled", sound_enabled_var.get())
-            self.config_manager.set("work_end_sound", work_sound_var.get()) 
-            self.config_manager.set("break_end_sound", break_sound_var.get())
             
-            self.config_manager.save_settings()
+            selected_work_sound_name = self.work_sound_combo_var.get()
+            selected_work_sound_path = self.sound_name_to_path_map.get(selected_work_sound_name, self.config_manager.get("work_end_sound")) # Fallback to current if name not found
+            self.config_manager.set("work_end_sound", selected_work_sound_path)
+
+            selected_break_sound_name = self.break_sound_combo_var.get()
+            selected_break_sound_path = self.sound_name_to_path_map.get(selected_break_sound_name, self.config_manager.get("break_end_sound")) # Fallback
+            self.config_manager.set("break_end_sound", selected_break_sound_path)
+
+            # Save Gemini settings
+            self.config_manager.set("gemini_enabled", gemini_enabled_var.get())
+            self.config_manager.set("gemini_api_key", gemini_api_key_var.get())
+            self.config_manager.set("gemini_model", gemini_model_var.get())
+            self.config_manager.set("gemini_tts_enabled", gemini_tts_enabled_var.get())
+
+            # notification_sounds list is updated by _add_custom_sound directly via config_manager.set
+            self.config_manager.save_settings() # Save all settings at once
+            # Reload theme colors in case they are part of future settings
+            self._load_theme_colors()
+            # Re-apply styles and update UI if colors changed
+            self._setup_styles() # Re-apply styles with potentially new colors
+            self.root.configure(bg=self.COLOR_BG) # Update root background
+
+            self._initialize_gemini_assistant() # Re-initialize Gemini with new settings
+            self._initialize_tts_engine() # Re-initialize TTS with new settings
+
             if not self.is_running: self.reset_current_session() 
             self.update_pomodoro_count_display()
             self.update_always_on_top() 
-            self.update_ui_for_session() 
+            self.update_ui_for_session() # This will update styles of dynamic elements
+            self.refresh_task_list_and_daily_summary() # Re-color calendar and other elements if needed
             settings_window.destroy()
 
-        ttk.Button(button_frame, text="Save & Close", command=save_and_close).pack(side=tk.LEFT, padx=10)
-        ttk.Button(button_frame, text="Cancel", command=settings_window.destroy).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="Save & Close", command=save_and_close).pack(side=tk.LEFT, padx=10) # TButton style
+        ttk.Button(button_frame, text="Cancel", command=settings_window.destroy).pack(side=tk.LEFT, padx=10) # TButton style
+
+    def _add_message_to_chat_history(self, message, tag="info"):
+        if not hasattr(self, 'gemini_chat_history') or not self.gemini_chat_history.winfo_exists():
+            return # Avoid error if called before UI is fully setup or after destroyed
+        self.gemini_chat_history.config(state=tk.NORMAL)
+        self.gemini_chat_history.insert(tk.END, message + "\n", (tag,))
+        self.gemini_chat_history.config(state=tk.DISABLED)
+        self.gemini_chat_history.see(tk.END)
+
+    def _initialize_tts_engine(self):
+        if self.config_manager.get("gemini_tts_enabled"):
+            try:
+                self.tts_engine = pyttsx3.init()
+                # Optional: Adjust properties like rate or volume if needed
+                # self.tts_engine.setProperty('rate', 150)
+            except Exception as e:
+                self.tts_engine = None
+                print(f"Error initializing TTS engine: {e}")
+                self._add_message_to_chat_history(f"TTS (Error): Could not initialize text-to-speech engine: {str(e)[:100]}", "error")
+        else:
+            if self.tts_engine: # If it was previously initialized, try to stop it
+                try:
+                    self.tts_engine.stop() # Stop any ongoing speech
+                except Exception as e:
+                    print(f"Error stopping TTS engine during re-initialization: {e}")
+            self.tts_engine = None # Ensure it's None if disabled
+
+    def _initialize_gemini_assistant(self):
+        if not hasattr(self, 'gemini_send_button') or not self.gemini_send_button.winfo_exists():
+             # UI not ready yet, defer or handle (e.g. called from __init__ too early)
+            return
+
+        if self.config_manager.get("gemini_enabled"):
+            api_key = self.config_manager.get("gemini_api_key")
+            model_name = self.config_manager.get("gemini_model")
+            if api_key:
+                try:
+                    self.gemini_assistant = GeminiAssistant(api_key=api_key, model_name=model_name)
+                    if not self.gemini_assistant.model:
+                        self._add_message_to_chat_history("Gemini (Error): Failed to initialize. Check API key/model in settings.", "error")
+                        self.gemini_assistant = None
+                        self.gemini_send_button.config(state=tk.DISABLED)
+                    else:
+                        self._add_message_to_chat_history("Gemini Assistant initialized.", "info")
+                        self.gemini_send_button.config(state=tk.NORMAL)
+                except Exception as e: # Catch potential errors during GeminiAssistant instantiation
+                    self._add_message_to_chat_history(f"Gemini (Error): Exception during init: {e}", "error")
+                    self.gemini_assistant = None
+                    self.gemini_send_button.config(state=tk.DISABLED)
+            else:
+                self.gemini_assistant = None
+                self._add_message_to_chat_history("Gemini is enabled, but API key is missing in settings.", "info")
+                self.gemini_send_button.config(state=tk.DISABLED)
+        else:
+            self.gemini_assistant = None
+            self._add_message_to_chat_history("Gemini Assistant is disabled.", "info")
+            if hasattr(self, 'gemini_send_button'): # Ensure button exists
+                 self.gemini_send_button.config(state=tk.DISABLED)
     
-    def _browse_sound_file(self, string_var_to_update, parent_window):
-        # resource_path("") gives the application root (HyperPomo folder)
+    def on_send_gemini_message(self, event=None):
+        if not hasattr(self, 'gemini_chat_input') or not self.gemini_chat_input.winfo_exists(): return
+
+        user_text = self.gemini_chat_input.get().strip()
+        if not user_text:
+            return
+
+        self._add_message_to_chat_history(f"You: {user_text}", "user")
+        self.gemini_chat_input.delete(0, tk.END)
+
+        self.gemini_send_button.config(state=tk.DISABLED) # Disable during processing
+        self.root.update_idletasks() # Ensure UI updates
+
+        if self.gemini_assistant and self.config_manager.get("gemini_enabled"):
+            response_text = self.gemini_assistant.send_message(user_text)
+
+            # TTS Playback
+            if self.tts_engine and self.config_manager.get("gemini_tts_enabled") and not response_text.startswith("Error:"):
+                try:
+                    self.tts_engine.say(response_text)
+                    self.tts_engine.runAndWait()
+                except Exception as e:
+                    print(f"Error during TTS playback: {e}")
+                    self._add_message_to_chat_history(f"TTS (Error): Could not play speech: {str(e)[:100]}", "error")
+
+            tag_to_use = "gemini"
+            if response_text.startswith("Error:"):
+                tag_to_use = "error"
+            self._add_message_to_chat_history(f"Gemini: {response_text}", tag_to_use)
+        else:
+            self._add_message_to_chat_history("Gemini is disabled or not configured. Check settings.", "info")
+
+        # Re-enable send button if Gemini is still configured, otherwise keep it disabled
+        if self.gemini_assistant and self.config_manager.get("gemini_enabled") and self.gemini_assistant.model:
+            self.gemini_send_button.config(state=tk.NORMAL)
+        else:
+            self.gemini_send_button.config(state=tk.DISABLED)
+
+    def _add_custom_sound(self, parent_window, work_combo, break_combo):
+        sounds_dir = resource_path("sounds")
+        try:
+            os.makedirs(sounds_dir, exist_ok=True)
+        except OSError as e:
+            messagebox.showerror("Error", f"Could not create sounds directory: {e}", parent=parent_window)
+            return
+
+        filepath = filedialog.askopenfilename(
+            parent=parent_window,
+            title="Select Custom Sound File",
+            initialdir=sounds_dir, # Start in sounds dir or user's last known
+            filetypes=(("Audio Files", "*.wav *.mp3"), ("All files", "*.*"))
+        )
+        if not filepath: return
+
+        sound_name = simpledialog.askstring("Sound Name", "Enter a display name for this sound:", parent=parent_window)
+        if not sound_name: return
+
+        # Sanitize sound_name slightly for filename, or use a timestamp
+        base_filename, file_extension = os.path.splitext(os.path.basename(filepath))
+        # Using timestamp to ensure uniqueness for copied file
+        timestamp = str(int(time.time()))
+        # Replace spaces and special characters in sound_name for filename, or just use a generic prefix
+        safe_sound_name_part = "".join(c if c.isalnum() else "_" for c in sound_name[:20]) # limit length
+        new_filename = f"custom_{safe_sound_name_part}_{timestamp}{file_extension}"
+        destination_path_relative = os.path.join("sounds", new_filename).replace(os.sep, "/") # Relative path for config
+        destination_path_absolute = resource_path(destination_path_relative)
+
+        try:
+            shutil.copy(filepath, destination_path_absolute)
+        except Exception as e:
+            messagebox.showerror("File Copy Error", f"Could not copy sound file: {e}", parent=parent_window)
+            return
+
+        sounds_library = self.config_manager.get("notification_sounds", [])
+        # Check if name or path already exists to avoid duplicates
+        if any(s['name'] == sound_name for s in sounds_library):
+            messagebox.showwarning("Duplicate Name", f"A sound with the name '{sound_name}' already exists.", parent=parent_window)
+            # Potentially remove the copied file if name is duplicate and we don't want to overwrite
+            try: os.remove(destination_path_absolute)
+            except OSError: pass # Ignore if removal fails
+            return
+        if any(s['path'] == destination_path_relative for s in sounds_library):
+            # This should be rare due to timestamp, but good to check
+            messagebox.showwarning("Duplicate Path", "This sound file path somehow already exists in the library.", parent=parent_window)
+            return
+
+        sounds_library.append({"name": sound_name, "path": destination_path_relative})
+        self.config_manager.set("notification_sounds", sounds_library) # Save updated list
+
+        # Update internal map and combobox values
+        self.sound_name_to_path_map[sound_name] = destination_path_relative
+        new_sound_names = list(self.sound_name_to_path_map.keys())
+        work_combo['values'] = new_sound_names
+        break_combo['values'] = new_sound_names
+
+        # Optionally set the new sound as selected for one of the comboboxes
+        # work_combo.set(sound_name)
+
+        messagebox.showinfo("Sound Added", f"Sound '{sound_name}' added. It's now available in the dropdowns.", parent=parent_window)
+
+
+    def _browse_sound_file(self, string_var_to_update, parent_window): # Kept for now, but might be deprecated by comboboxes
         initial_dir_sounds = resource_path("sounds") 
         if not os.path.isdir(initial_dir_sounds):
-            # Fallback if "sounds" dir doesn't exist in bundle for some reason, use app root
             initial_dir_sounds = resource_path("") 
-
 
         filepath = filedialog.askopenfilename(
             parent=parent_window, 
-            title="Select Sound File",
+            title="Select Sound File (Legacy)",
             initialdir=initial_dir_sounds,
             filetypes=(("Audio Files", "*.wav *.mp3"), ("All files", "*.*"))
         )
         if filepath:
             normalized_filepath = os.path.normpath(filepath)
-            # Try to make path relative to app root if it's inside it or its subfolders (like sounds/)
             app_root_normalized = os.path.normpath(resource_path(""))
-            
             try:
-                # Check if the selected file is within the application's root directory
                 if normalized_filepath.startswith(app_root_normalized):
                     relative_path = os.path.relpath(normalized_filepath, app_root_normalized)
                     string_var_to_update.set(relative_path.replace(os.sep, "/"))
                 else: 
-                    # File is outside the app bundle, store absolute path
                     string_var_to_update.set(normalized_filepath.replace(os.sep, "/"))
-            except ValueError: # Should not happen if both paths are absolute
+            except ValueError:
                  string_var_to_update.set(normalized_filepath.replace(os.sep, "/"))
 
 
@@ -994,6 +1328,66 @@ class PomodoroApp:
         self.root.bind('<Control-R>', self.reset_current_session)
         self.root.bind('<Control-k>', self.skip_break)
         self.root.bind('<Control-K>', self.skip_break)
+
+    def on_task_drag_start(self, event):
+        item_iid = self.task_tree.identify_row(event.y)
+        if item_iid:
+            # Check if the click is on the actual item, not header or empty space
+            if self.task_tree.exists(item_iid):
+                tags = self.task_tree.item(item_iid, "tags")
+                if tags:
+                    self.dragging_task_id = tags[0]
+                    # self.task_tree.config(cursor="hand2") # Optional: change cursor
+                else:
+                    self.dragging_task_id = None # Clicked on something without a task ID tag
+            else:
+                self.dragging_task_id = None # Clicked outside of an actual item
+        else:
+            self.dragging_task_id = None
+
+    def on_task_drag_motion(self, event):
+        if self.dragging_task_id:
+            self.task_tree.config(cursor="hand2") # Or "grabbing" if available/preferred
+            # Visual feedback (like a line or ghost item) could be added here
+            # For now, just cursor change.
+            pass
+
+    def on_task_drag_release(self, event):
+        if not self.dragging_task_id:
+            self.task_tree.config(cursor="") # Reset cursor
+            return
+
+        target_iid = self.task_tree.identify_row(event.y)
+
+        if target_iid and self.task_tree.exists(target_iid) and target_iid != self.dragging_task_id:
+            # Get the ID of the item being dragged (from its tags)
+            dragged_item_tree_id = None
+            for item_in_tree in self.task_tree.get_children(''):
+                if self.task_tree.item(item_in_tree, "tags") and self.task_tree.item(item_in_tree, "tags")[0] == self.dragging_task_id:
+                    dragged_item_tree_id = item_in_tree
+                    break
+
+            if dragged_item_tree_id:
+                try:
+                    target_index = self.task_tree.index(target_iid)
+                    self.task_tree.move(dragged_item_tree_id, '', target_index)
+                except tk.TclError as e:
+                    print(f"Error moving task: {e}") # Should not happen if target_iid is valid
+            else:
+                print(f"Could not find tree item for dragging_task_id: {self.dragging_task_id}")
+
+        elif not target_iid: # Dropped in empty space (likely at the end)
+             # Get the ID of the item being dragged (from its tags)
+            dragged_item_tree_id = None
+            for item_in_tree in self.task_tree.get_children(''):
+                if self.task_tree.item(item_in_tree, "tags") and self.task_tree.item(item_in_tree, "tags")[0] == self.dragging_task_id:
+                    dragged_item_tree_id = item_in_tree
+                    break
+            if dragged_item_tree_id:
+                self.task_tree.move(dragged_item_tree_id, '', tk.END)
+
+        self.dragging_task_id = None
+        self.task_tree.config(cursor="") # Reset cursor
 
 
     def on_close(self):

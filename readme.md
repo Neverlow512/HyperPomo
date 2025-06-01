@@ -14,6 +14,16 @@ HyperPomo is a feature-rich Pomodoro timer and task planner designed to help use
 *   Session logging to track your work patterns
 *   Modern, clean interface with keyboard shortcuts for quick actions
 
+### Upcoming Features (Under Development)
+*   Fully interactive task list with drag-and-drop.
+*   Enhanced GUI customization (themes, colors).
+*   Integrated Gemini Assistant (chat, task planning, ADHD support, calendar integration).
+*   Text-to-speech for Gemini's messages.
+*   Voice input for interacting with Gemini.
+*   Full YouTube music integration for focus playlists.
+*   Expanded library of notification sounds.
+*   Advanced time tracking and Pomodoro features.
+
 <<<<<<< HEAD
 
 ![Settings](Screenshots/readme_20250529235220935.png)

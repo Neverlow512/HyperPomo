@@ -9,11 +9,42 @@ DEFAULT_SETTINGS = {
     "pomodoros_per_long_break": 4,
     "auto_start_next_session": False,
     "sound_enabled": True,
-    "work_end_sound": "sounds/work_end.mp3", # Default relative path
-    "break_end_sound": "sounds/break_end.mp3", # Default relative path
+    "notification_sounds": [
+        {"name": "Default Work End", "path": "sounds/work_end.mp3"},
+        # Assuming work_start.mp3 was intended for break_end based on previous structure
+        {"name": "Default Break End", "path": "sounds/work_start.mp3"}
+    ],
+    "work_end_sound": "sounds/work_end.mp3",
+    "break_end_sound": "sounds/work_start.mp3",
     "always_on_top": False,
     "tasks": [], 
-    "user_name": "User" 
+    "user_name": "User",
+    "gemini_api_key": "",
+    "gemini_model": "gemini-pro",
+    "gemini_enabled": False,
+    "gemini_models_available": ["gemini-pro", "gemini-1.0-pro", "gemini-1.5-flash-latest", "gemini-1.5-pro-latest"],
+    "gemini_tts_enabled": False,
+    "theme": {
+        "COLOR_BG": "#2D323B",
+        "COLOR_FG": "#E0E0E0",
+        "COLOR_ACCENT": "#FF8A65",
+        "COLOR_WORK": "#81C784",
+        "COLOR_SHORT_BREAK": "#64B5F6",
+        "COLOR_LONG_BREAK_BG": "#FFD54F",
+        "COLOR_LONG_BREAK_FG": "#2D323B",
+        "COLOR_BUTTON": "#4A505A",
+        "COLOR_BUTTON_HOVER": "#5C6370",
+        "COLOR_BUTTON_TEXT": "#FFFFFF",
+        "COLOR_DISABLED_BUTTON_TEXT": "#A0A0A0",
+        "COLOR_ENTRY_BG": "#373C45",
+        "COLOR_TREEVIEW_BG": "#333840",
+        "COLOR_TREEVIEW_FG": "#E0E0E0",
+        "COLOR_TREEVIEW_FIELD_BG": "#333840",
+        "COLOR_TREEVIEW_HEADING_BG": "#4A505A",
+        "COLOR_CURRENT_TASK_BG": "#373C45",
+        "COLOR_CALENDAR_HEADER": "#4A505A",
+        "COLOR_CALENDAR_WEEKEND": "#FF7070"
+    }
 }
 
 class ConfigManager:
@@ -47,13 +78,62 @@ class ConfigManager:
             with open(self.filepath, 'r', encoding='utf-8') as f:
                 loaded_settings = json.load(f)
                 # Ensure all default keys are present in loaded settings
-                # This is a simple merge; more complex merging might be needed for nested dicts if any
                 updated = False
-                for key, value in DEFAULT_SETTINGS.items():
+                for key, default_value in DEFAULT_SETTINGS.items():
                     if key not in loaded_settings:
-                        loaded_settings[key] = value
+                        loaded_settings[key] = default_value
                         updated = True
-                if updated: # If we added missing keys, save the updated settings back
+                    elif key == "theme" and isinstance(default_value, dict):
+                        # Ensure all default theme colors are present
+                        theme_updated = False
+                        if not isinstance(loaded_settings.get(key), dict): # If theme is not a dict, overwrite with default
+                            loaded_settings[key] = default_value.copy()
+                            theme_updated = True
+                        else:
+                            for color_key, color_value in default_value.items():
+                                if color_key not in loaded_settings[key]:
+                                    loaded_settings[key][color_key] = color_value
+                                    theme_updated = True
+                        if theme_updated:
+                            updated = True
+                    elif key == "notification_sounds" and isinstance(default_value, list):
+                        if not isinstance(loaded_settings.get(key), list) or \
+                           not all(isinstance(item, dict) and "name" in item and "path" in item for item in loaded_settings[key]):
+                            loaded_settings[key] = default_value[:] # Use a copy
+                            updated = True
+
+                # Migration/validation for work_end_sound and break_end_sound
+                default_sounds_paths = [s['path'] for s in DEFAULT_SETTINGS["notification_sounds"]]
+                if "work_end_sound" not in loaded_settings or loaded_settings["work_end_sound"] not in default_sounds_paths:
+                    # If it's an old value or invalid, check if it exists in the current notification_sounds list (if any)
+                    current_sound_paths = [s['path'] for s in loaded_settings.get("notification_sounds", []) if isinstance(s, dict)]
+                    if loaded_settings.get("work_end_sound") not in current_sound_paths:
+                        loaded_settings["work_end_sound"] = DEFAULT_SETTINGS["work_end_sound"]
+                        updated = True
+
+                if "break_end_sound" not in loaded_settings or loaded_settings["break_end_sound"] not in default_sounds_paths: # Check against default_sounds_paths
+                    current_sound_paths = [s['path'] for s in loaded_settings.get("notification_sounds", []) if isinstance(s, dict)]
+                    if loaded_settings.get("break_end_sound") not in current_sound_paths: # Check against current actual sounds
+                        loaded_settings["break_end_sound"] = DEFAULT_SETTINGS["break_end_sound"]
+                        updated = True
+
+                # Ensure Gemini specific keys are present
+                gemini_keys = ["gemini_api_key", "gemini_model", "gemini_enabled", "gemini_models_available", "gemini_tts_enabled"]
+                for gk in gemini_keys:
+                    if gk not in loaded_settings:
+                        loaded_settings[gk] = DEFAULT_SETTINGS[gk]
+                        updated = True
+                # Ensure gemini_models_available is a list
+                if not isinstance(loaded_settings.get("gemini_models_available"), list):
+                    loaded_settings["gemini_models_available"] = DEFAULT_SETTINGS["gemini_models_available"][:] # Make a copy
+                    updated = True
+                # Ensure gemini_tts_enabled is a boolean
+                if not isinstance(loaded_settings.get("gemini_tts_enabled"), bool):
+                    loaded_settings["gemini_tts_enabled"] = DEFAULT_SETTINGS["gemini_tts_enabled"]
+                    updated = True
+
+
+                if updated: # If we added missing keys, theme colors, or sound settings, save back
                     self.save_settings(loaded_settings) # Pass the dict to save
                 return loaded_settings
         except (json.JSONDecodeError, IOError):
