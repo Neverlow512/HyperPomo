@@ -56,10 +56,11 @@ If you prefer to run from the source code or build the application yourself, fol
         ```bash
         sudo apt install libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly python3-gi
         ```
-    *   **PyAudio:**
+    *   **PyAudio (for Speech-to-Text):** For `PyAudio` to compile correctly when installed via pip, you may need to install PortAudio development libraries first:
         ```bash
-        sudo apt install python3-pyaudio
+        sudo apt install portaudio19-dev
         ```
+        Then, `pip install PyAudio` (ideally in your virtual environment) should work. Alternatively, `sudo apt install python3-pyaudio` can sometimes satisfy the system-level dependency, but managing it with pip in a venv is preferred.
 *   **Windows & macOS:**
     *   Tkinter is typically included with standard Python installations from python.org.
     *   Sound playback (`playsound`) usually works out-of-the-box.
@@ -85,7 +86,7 @@ If you prefer to run from the source code or build the application yourself, fol
         # On Windows: .venv\Scripts\activate
         # On macOS/Linux: source .venv/bin/activate
         source .venv/bin/activate
-        pip install -r requirements.txt
+        pip install -r requirements.txt # This file includes all Python packages like google-generativeai, pyttsx3, SpeechRecognition, PyAudio, yt-dlp, python-vlc, etc.
         # To run the app later: python run_pomodoro.py (or python3)
         # When done using the app and you want to leave the virtual environment: deactivate
         ```
@@ -216,5 +217,10 @@ This uses the provided `HyperPomo.spec` file for build configuration. The output
 *   **Icon Not Appearing Correctly (Linux Desktop Entry):** After running `install.sh`, if the icon is wrong or missing in your application menu, try logging out and back in. Confirm the `HyperPomo.png` in `Misc/` has a transparent background *before* building with PyInstaller.
 *   **`ModuleNotFoundError` after PyInstaller build:** Some dependencies might rarely be missed by PyInstaller. If so, they may need to be added to the `hiddenimports` list in the `HyperPomo.spec` file, then rebuild the application.
 *   **Permissions issues on Linux after `install.sh`:** Ensure `install.sh` and `HyperPomo` (in the installation directory) are executable (`chmod +x`).
-*   **VLC Dependency for YouTube Player:** If the YouTube Music Player isn't working (e.g., tracks don't load or play), ensure you have VLC media player installed on your system. The application uses `python-vlc`, which requires a system installation of VLC.
+*   **VLC Features Not Working / `No module named 'vlc'` / `Error initializing VLC: no function 'libvlc_new'`:**
+    *   Ensure you have installed `python-vlc` in your virtual environment (it's in `requirements.txt`, so `pip install -r requirements.txt` should handle this).
+    *   Crucially, ensure that **VLC media player** is installed correctly on your system and accessible in your system's PATH or standard library locations. `python-vlc` is a binding to this system installation. Download VLC from [videolan.org/vlc/](https://www.videolan.org/vlc/).
+*   **Speech-to-Text (Microphone) Not Working on Linux:**
+    *   Ensure `portaudio19-dev` is installed (`sudo apt install portaudio19-dev`) *before* trying to `pip install PyAudio` in your virtual environment.
+    *   If `PyAudio` still fails to install or work, try installing the system version `python3-pyaudio` via `apt` as a fallback, though managing it with pip in a venv is preferred.
 ```

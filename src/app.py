@@ -202,7 +202,8 @@ class PomodoroApp:
         self.main_paned_window.pack(fill=tk.BOTH, expand=True)
 
         left_main_frame = ttk.Frame(self.main_paned_window, padding=0)
-        self.main_paned_window.add(left_main_frame, minsize=450, weight=2)
+        self.main_paned_window.add(left_main_frame, minsize=450)
+        self.main_paned_window.paneconfig(left_main_frame, weight=2)
         left_main_frame.columnconfigure(0, weight=1)
         left_main_frame.rowconfigure(0, weight=1)
 
@@ -358,7 +359,8 @@ class PomodoroApp:
         settings_button.grid(row=0, column=2, sticky="e")
         
         self.gemini_chat_frame = ttk.Frame(self.main_paned_window, padding=10)
-        self.main_paned_window.add(self.gemini_chat_frame, minsize=300, weight=1)
+        self.main_paned_window.add(self.gemini_chat_frame, minsize=350)
+        self.main_paned_window.paneconfig(self.gemini_chat_frame, weight=1)
         self.gemini_chat_frame.columnconfigure(0, weight=1)
         self.gemini_chat_frame.rowconfigure(0, weight=1)
         self.gemini_chat_frame.rowconfigure(1, weight=0)
@@ -1788,16 +1790,18 @@ def main():
     root = tk.Tk()
     root.minsize(850, 650) 
     try:
-        icon_path_ico = resource_path("Misc/HyperPomo.ico") 
-        if os.path.exists(icon_path_ico):
-            root.iconbitmap(icon_path_ico) 
+        # Attempt PNG first as it's more broadly compatible for window icons via PhotoImage
+        icon_path_png = resource_path("Misc/HyperPomo.png")
+        if os.path.exists(icon_path_png):
+            img = tk.PhotoImage(file=icon_path_png)
+            root.tk.call('wm', 'iconphoto', root._w, img)
         else:
-            icon_path_png = resource_path("Misc/HyperPomo.png") 
-            if os.path.exists(icon_path_png):
-                img = tk.PhotoImage(file=icon_path_png)
-                root.tk.call('wm', 'iconphoto', root._w, img)
+            # Fallback to ICO if PNG is not found (primarily for Windows taskbar)
+            icon_path_ico = resource_path("Misc/HyperPomo.ico")
+            if os.path.exists(icon_path_ico):
+                root.iconbitmap(default=icon_path_ico) # Use default= for .ico
             else:
-                print(f"Window icon (PNG) not found: {icon_path_png}")
+                print(f"Window icon (PNG or ICO) not found.")
     except Exception as e:
         print(f"Could not set window icon: {e}")
 

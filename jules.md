@@ -208,4 +208,35 @@ This file will contain notes and a log of development activities undertaken by J
 *   **`jules.md`:** Maintained as a comprehensive development log (this current update marks its finalization for this phase).
 *   **UI Polish & Bug Fix Review:** A general review was conducted to improve UI consistency, error message clarity, and button state management. Key features were checked for error handling robustness.
 *   **Application Icon:** Existing code for setting the application icon was verified.
+
+## Post-Submission Bug Fixing & Refinements
+
+After the initial submission of all integrated features, the following issues were identified and resolved:
+
+*   **Dependency Management (`requirements.txt`):**
+    *   The `requirements.txt` file was reviewed and corrected. Comments were added/updated for system-level dependencies.
+    *   **Fix:** Updated `requirements.txt` to ensure it accurately reflects all necessary packages:
+        *   `google-generativeai>=0.5.0`
+        *   `pyttsx3>=2.90`
+        *   `SpeechRecognition>=3.10.0`
+        *   `PyAudio>=0.2.11` (with notes on Linux dependencies like `portaudio19-dev python3-pyaudio`)
+        *   `yt-dlp>=2023.12.30`
+        *   `python-vlc>=3.0.20` (with notes on system-wide VLC player installation)
+        *   `tkcalendar>=1.6.1`
+        *   `playsound>=1.3.0`
+        *   `pyinstaller>=6.0.0`
+    *   Removed any incorrect entries.
+    *   Cleaned up comments for clarity.
+
+*   **Tkinter PanedWindow Error (`src/app.py`):**
+    *   Encountered `_tkinter.TclError: unknown option "-weight"` when adding panes to `self.main_paned_window`.
+    *   **Fix:** Modified `PomodoroApp._setup_ui()`. The `weight` option was removed from the `.add()` method for PanedWindow children. Weights are now applied correctly using `self.main_paned_window.paneconfig(pane, weight=X)` after the pane is added.
+
+*   **Icon Loading Error on Linux (`src/app.py`):**
+    *   The application failed to load the `.ico` file for the window icon on Linux.
+    *   **Fix:** Updated the `main()` function in `src/app.py`. The icon loading logic now prioritizes loading `Misc/HyperPomo.png` using `tk.PhotoImage` and `root.tk.call('wm', 'iconphoto', ...)`, which is more reliable cross-platform. It falls back to `root.iconbitmap(default=...)` for `.ico` files if the PNG is not found.
+
+*   **Import Error Message (`run_pomodoro.py`):**
+    *   The initial error message if `src.app` could not be imported used a vague placeholder.
+    *   **Fix:** Improved the error message to include the dynamic project root path for better clarity: `Ensure 'src' directory exists under '{os.path.basename(project_root)}' (project root)...`.
 ```

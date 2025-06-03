@@ -11,7 +11,7 @@ try:
 except ImportError as e:
     print("Error: Could not import the application.")
     print(f"Attempted to load from: {project_root}")
-    print("Ensure 'src' directory exists under '{APP_DIR_NAME}' and contains all modules.")
+    print(f"Ensure 'src' directory exists under '{os.path.basename(project_root)}' (project root) and contains all modules.")
     print(f"Details: {e}")
     sys.exit(1)
 except Exception as e:
