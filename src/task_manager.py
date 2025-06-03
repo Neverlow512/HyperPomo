@@ -134,3 +134,49 @@ class TaskManager:
             self._save_tasks_to_config()
             return True
         return False
+
+    def reorder_task(self, dragged_task_id, target_task_id, position="before"):
+        dragged_task = None
+        dragged_task_index = -1
+        for i, task in enumerate(self.tasks):
+            if task.id == dragged_task_id:
+                dragged_task = task
+                dragged_task_index = i
+                break
+
+        if not dragged_task:
+            return False # Dragged task not found
+
+        # Remove the dragged task first
+        # Important: Do this before finding target_index if target_task_id is not None,
+        # as target_index might shift.
+        current_dragged_task_obj = self.tasks.pop(dragged_task_index)
+
+        if target_task_id is None: # Dragging to the end of the list
+            self.tasks.append(current_dragged_task_obj)
+            self._save_tasks_to_config()
+            return True
+
+        target_task_index = -1
+        for i, task in enumerate(self.tasks):
+            if task.id == target_task_id:
+                target_task_index = i
+                break
+
+        if target_task_index == -1:
+            # Target task not found (perhaps it was deleted or an issue with ID)
+            # Add dragged task back to its original position (or end) to avoid losing it
+            self.tasks.insert(dragged_task_index, current_dragged_task_obj)
+            # Not saving, as this is an error state. Or save to revert? For now, no save.
+            return False
+
+        # Insert the dragged task at the determined new position
+        if position == "before":
+            self.tasks.insert(target_task_index, current_dragged_task_obj)
+        elif position == "after":
+            self.tasks.insert(target_task_index + 1, current_dragged_task_obj)
+        else: # Default or invalid position, treat as "before"
+            self.tasks.insert(target_task_index, current_dragged_task_obj)
+
+        self._save_tasks_to_config()
+        return True

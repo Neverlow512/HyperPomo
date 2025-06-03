@@ -13,7 +13,37 @@ DEFAULT_SETTINGS = {
     "break_end_sound": "sounds/break_end.mp3", # Default relative path
     "always_on_top": False,
     "tasks": [], 
-    "user_name": "User" 
+    "user_name": "User",
+
+    # UI Colors
+    "ui_color_bg": "#2D323B",
+    "ui_color_fg": "#E0E0E0",
+    "ui_color_accent": "#FF8A65",
+    "ui_color_work": "#81C784",
+    "ui_color_short_break": "#64B5F6",
+    "ui_color_long_break_bg": "#FFD54F",
+    "ui_color_long_break_fg": "#2D323B",
+    "ui_color_button": "#4A505A",
+    "ui_color_button_hover": "#5C6370",
+    "ui_color_button_text": "#FFFFFF",
+    "ui_color_disabled_button_text": "#A0A0A0",
+    "ui_color_entry_bg": "#373C45",
+    "ui_color_treeview_bg": "#333840",
+    "ui_color_treeview_fg": "#E0E0E0",
+    "ui_color_treeview_field_bg": "#333840",
+    "ui_color_treeview_heading_bg": "#4A505A",
+    "ui_color_current_task_bg": "#373C45",
+    "ui_color_calendar_header": "#4A505A",
+    "ui_color_calendar_weekend": "#FF7070",
+
+    # Gemini Settings
+    "gemini_api_key": "",
+    "gemini_model": "models/gemini-1.5-flash-latest",
+
+    # TTS Settings
+    "tts_enabled": False,
+    "tts_voice_id": "",
+    "tts_rate": 150
 }
 
 class ConfigManager:
