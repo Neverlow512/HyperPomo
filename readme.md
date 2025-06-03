@@ -1,33 +1,36 @@
 # HyperPomo - Pomodoro Timer & Task Planner
 
+**Note:** This application has recently undergone major feature enhancements, including Gemini AI integration, Text-to-Speech, Speech-to-Text, a YouTube Music Player, and more!
+
 HyperPomo is a feature-rich Pomodoro timer and task planner designed to help users, especially those with ADHD, manage their time and tasks effectively. It was built because other tools didn't offer the desired level of customization and all-in-one functionality.
 
 ## Features
 
-*   Customizable Pomodoro, Short Break, and Long Break timers
-*   Integrated To-Do List with estimated/actual Pomodoros per task
-*   Task scheduling with a built-in calendar view
-*   Daily summary of Pomodoros and focus time
-*   Notes feature for each task
-*   Audio notifications with customizable sounds
-*   "Always on Top" mode for the application window
-*   Session logging to track your work patterns
-*   Modern, clean interface with keyboard shortcuts for quick actions
-
-<<<<<<< HEAD
-
-![Settings](Screenshots/readme_20250529235220935.png)
-![](Screenshots/readme_20250529235106384.png)
-=======
-![](Screenshots/readme_20250529235106384.png)
-![Settings](Screenshots/readme_20250529235220935.png)
-
->>>>>>> main
+*   **Core Pomodoro & Task Management:**
+    *   Customizable Pomodoro, Short Break, and Long Break timers
+    *   Integrated To-Do List with estimated/actual Pomodoros per task
+    *   Task scheduling with a built-in calendar view
+    *   Daily summary of Pomodoros and focus time
+    *   Notes feature for each task
+    *   Task list drag-and-drop reordering for easy prioritization.
+*   **Notifications & UI:**
+    *   Audio notifications with customizable sounds (defaults and user-selectable files).
+    *   "Always on Top" mode for the application window.
+    *   Modern, clean interface with keyboard shortcuts for quick actions.
+    *   Customizable UI color themes via settings to personalize your experience.
+*   **AI & Multimedia Integration:**
+    *   **Gemini AI Chat:** Integrated chat panel for querying Google's Gemini model (requires API key).
+    *   **Text-to-Speech (TTS):** Gemini's responses can be read aloud, with configurable voice and speech rate.
+    *   **Speech-to-Text (STT):** Use your microphone to dictate messages into the Gemini chat.
+    *   **YouTube Music Player:** Load and play YouTube playlists directly within the application. Controls include play/pause, next/previous track, and stop.
+*   **Tracking & Personalization:**
+    *   Session logging to track your work patterns over time.
+    *   User name personalization.
+    *   Configurable auto-start for the next session.
 
 ## Downloads (Recommended for Most Users)
 
 Pre-compiled, ready-to-run versions of HyperPomo for Linux, Windows, and macOS (if available) can be found on the **[GitHub Releases Page](https://github.com/Neverlow512/HyperPomo/releases)**. This is the easiest way to get started.
-
 
 ---
 
@@ -39,6 +42,7 @@ If you prefer to run from the source code or build the application yourself, fol
 
 *   **Python 3:** Version 3.8 or higher is recommended. Download from [python.org](https://www.python.org/) if you don't have it. Ensure Python and Pip are added to your system's PATH during installation (especially on Windows).
 *   **Git:** For cloning the repository. Download from [git-scm.com](https://git-scm.com/).
+*   **VLC Media Player:** Required for the YouTube Music Player feature. Please install VLC for your operating system from [videolan.org](https://www.videolan.org/vlc/).
 
 ### Platform-Specific Prerequisites
 
@@ -52,9 +56,14 @@ If you prefer to run from the source code or build the application yourself, fol
         ```bash
         sudo apt install libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly python3-gi
         ```
+    *   **PyAudio:**
+        ```bash
+        sudo apt install python3-pyaudio
+        ```
 *   **Windows & macOS:**
     *   Tkinter is typically included with standard Python installations from python.org.
-    *   Sound playback usually works out-of-the-box with `playsound`.
+    *   Sound playback (`playsound`) usually works out-of-the-box.
+    *   PyAudio may require separate installation steps if not resolved by pip (e.g., using precompiled wheels or package managers like Homebrew on macOS).
 
 ### Setup Instructions (All Platforms)
 
@@ -64,7 +73,6 @@ If you prefer to run from the source code or build the application yourself, fol
     git clone https://github.com/Neverlow512/HyperPomo.git
     cd HyperPomo
     ```
-    
 
 2.  **Set up Python Environment & Install Dependencies:**
 
@@ -72,12 +80,12 @@ If you prefer to run from the source code or build the application yourself, fol
         This method isolates project dependencies and is the best practice for Python development.
         ```bash
         # Navigate to the HyperPomo project directory if you're not already there
-        # cd HyperPomo 
-        python3 -m venv .venv 
+        # cd HyperPomo
+        python3 -m venv .venv
         # On Windows: .venv\Scripts\activate
         # On macOS/Linux: source .venv/bin/activate
-        source .venv/bin/activate 
-        pip install -r requirements.txt 
+        source .venv/bin/activate
+        pip install -r requirements.txt
         # To run the app later: python run_pomodoro.py (or python3)
         # When done using the app and you want to leave the virtual environment: deactivate
         ```
@@ -86,7 +94,7 @@ If you prefer to run from the source code or build the application yourself, fol
         This installs packages to your user's local Python package directory. On newer Linux distributions (like Ubuntu 22.04+ with Python 3.11+), this might require overriding system protections (PEP 668).
         ```bash
         # Navigate to the HyperPomo project directory
-        # cd HyperPomo 
+        # cd HyperPomo
 
         # Ensure pip is up-to-date
         pip3 install --upgrade pip
@@ -124,7 +132,7 @@ Once prerequisites and dependencies are installed:
     # On macOS/Linux:
     python3 run_pomodoro.py
     # On Windows (if python3 isn't aliased, 'python' might work if it's in PATH):
-    # python run_pomodoro.py 
+    # python run_pomodoro.py
     ```
 
 ---
@@ -208,4 +216,5 @@ This uses the provided `HyperPomo.spec` file for build configuration. The output
 *   **Icon Not Appearing Correctly (Linux Desktop Entry):** After running `install.sh`, if the icon is wrong or missing in your application menu, try logging out and back in. Confirm the `HyperPomo.png` in `Misc/` has a transparent background *before* building with PyInstaller.
 *   **`ModuleNotFoundError` after PyInstaller build:** Some dependencies might rarely be missed by PyInstaller. If so, they may need to be added to the `hiddenimports` list in the `HyperPomo.spec` file, then rebuild the application.
 *   **Permissions issues on Linux after `install.sh`:** Ensure `install.sh` and `HyperPomo` (in the installation directory) are executable (`chmod +x`).
-
+*   **VLC Dependency for YouTube Player:** If the YouTube Music Player isn't working (e.g., tracks don't load or play), ensure you have VLC media player installed on your system. The application uses `python-vlc`, which requires a system installation of VLC.
+```
