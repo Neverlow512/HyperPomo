@@ -214,7 +214,7 @@ class PomodoroApp:
         top_left_content_frame = ttk.Frame(left_vertical_paned_window, padding=5)
         top_left_content_frame.columnconfigure(0, weight=1)
         top_left_content_frame.rowconfigure(1, weight=1)
-        left_vertical_paned_window.add(top_left_content_frame, minsize=300, weight=1)
+        left_vertical_paned_window.add(top_left_content_frame, minsize=300) # Apply weight using paneconfig later
 
         self.timer_controls_frame = ttk.Frame(top_left_content_frame)
         self.timer_controls_frame.grid(row=0, column=0, sticky="ew", pady=(0,5))
@@ -312,7 +312,14 @@ class PomodoroApp:
         bottom_left_content_frame = ttk.Frame(left_vertical_paned_window, padding=5)
         bottom_left_content_frame.columnconfigure(0, weight=1)
         bottom_left_content_frame.rowconfigure(1, weight=1)
-        left_vertical_paned_window.add(bottom_left_content_frame, minsize=250, weight=1)
+        left_vertical_paned_window.add(bottom_left_content_frame, minsize=200) # Apply weight using paneconfig later
+
+        # Configure weights for left_vertical_paned_window panes using indices
+        try:
+            left_vertical_paned_window.paneconfig(0, weight=1) # For top_left_content_frame
+            left_vertical_paned_window.paneconfig(1, weight=1) # For bottom_left_content_frame
+        except tk.TclError as e:
+            print(f"Error configuring left_vertical_paned_window panes: {e}")
 
         self.datetime_label = ttk.Label(bottom_left_content_frame, text="", style="DateTime.TLabel", anchor="e")
         self.datetime_label.grid(row=0, column=0, sticky="ew", pady=(0,2), padx=5)
@@ -1493,7 +1500,7 @@ class PomodoroApp:
         sound_enabled_var = tk.BooleanVar(value=self.config_manager.get("sound_enabled"))
         ttk.Checkbutton(general_settings_frame, text="Enable sound notifications", variable=sound_enabled_var).grid(row=current_row_general, column=0, columnspan=2, sticky=tk.W, pady=3)
         current_row_general += 1
-        
+
         ttk.Checkbutton(general_settings_frame, text="Always on Top", variable=self.always_on_top_var, command=self.update_always_on_top).grid(row=current_row_general, column=0, columnspan=2, sticky=tk.W, pady=3)
         current_row_general += 1
 
@@ -1556,7 +1563,7 @@ class PomodoroApp:
         appearance_settings_frame.columnconfigure(2, weight=1)
 
         integrations_current_row = 0
-        
+
         gemini_settings_frame = ttk.LabelFrame(integrations_settings_frame, text="Gemini AI", padding=10)
         gemini_settings_frame.grid(row=integrations_current_row, column=0, columnspan=3, sticky="ew", pady=5)
         gemini_settings_frame.columnconfigure(1, weight=1)

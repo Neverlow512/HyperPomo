@@ -60,7 +60,7 @@ If you prefer to run from the source code or build the application yourself, fol
         The `playsound` library may suggest installing `PyGObject` for more efficient operation on Linux. If you choose to install it via pip (`pip install pygobject`), you will first need to install its system-level build dependencies:
         ```bash
         sudo apt update
-        sudo apt install libcairo2-dev libgirepository1.0-dev pkg-config gir1.2-gtk-3.0
+        sudo apt install libcairo2-dev libgirepository-2.0-dev libgirepository1.0-dev pkg-config gir1.2-gtk-3.0
         ```
         After these are installed, `pip install pygobject` should complete successfully within your virtual environment. Note that `playsound` will still function without `PyGObject`, potentially with minor performance differences or different backend usage.
     *   **PyAudio (for Speech-to-Text):** For `PyAudio` to compile correctly when installed via pip, you may need to install PortAudio development libraries first:

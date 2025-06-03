@@ -249,4 +249,10 @@ After the initial submission of all integrated features, the following issues we
         *   Emphasized in prerequisites that VLC media player must be installed system-wide.
         *   Added instructions for Linux users to install `libvlc-dev` and `libvlccore-dev` to help `python-vlc` correctly find and link with the system VLC, resolving potential "no function 'libvlc_new'" errors.
         *   Updated the VLC troubleshooting section with this information.
+    *   **Tkinter PanedWindow Error (Third Fix Attempt - Nested Panes):**
+        *   The `_tkinter.TclError: unknown option "-weight"` error was also found on `left_vertical_paned_window.add(top_left_content_frame, ...)`.
+        *   **Fix:** Consistent application of the `paneconfig` fix. Modified `PomodoroApp._setup_ui()` in `src/app.py`. Child panes (`top_left_content_frame`, `bottom_left_content_frame`) are added to `left_vertical_paned_window` first, then their weights are configured using `left_vertical_paned_window.paneconfig(index, weight=X)`.
+
+    *   **Documentation for `PyGObject` System Dependencies (`readme.md`):**
+        *   Updated the `sudo apt install` command for `PyGObject` build dependencies to explicitly include `libgirepository-2.0-dev`, based on user feedback. The corrected line now includes `libcairo2-dev`, `libgirepository-2.0-dev`, `libgirepository1.0-dev`, `pkg-config`, and `gir1.2-gtk-3.0`.
 ```
